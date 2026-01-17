@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Task, Status, Priority, TaskAttachment } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Task, Status, Priority, TaskAttachment, HighlightOption } from '../types';
 import { Clock, Calendar, ChevronDown, ChevronUp, Edit2, CheckCircle2, AlertCircle, FolderGit2, Trash2, Hourglass, ArrowRight, Archive, X, Save, Paperclip, File, Download as DownloadIcon } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -8,8 +8,8 @@ interface TaskCardProps {
   onUpdateStatus: (id: string, status: string) => void;
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
-  onAddUpdate: (id: string, content: string, attachments?: TaskAttachment[]) => void;
-  onEditUpdate?: (taskId: string, updateId: string, newContent: string, newTimestamp?: string) => void;
+  onAddUpdate: (id: string, content: string, attachments?: TaskAttachment[], highlightColor?: string) => void;
+  onEditUpdate?: (taskId: string, updateId: string, newContent: string, newTimestamp?: string, highlightColor?: string | null) => void;
   onDeleteUpdate?: (taskId: string, updateId: string) => void;
   allowDelete?: boolean;
   isReadOnly?: boolean;
@@ -20,6 +20,7 @@ interface TaskCardProps {
   availableStatuses?: string[];
   availablePriorities?: string[];
   isDailyView?: boolean;
+  updateTags?: HighlightOption[];
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({ 
@@ -38,11 +39,15 @@ const TaskCard: React.FC<TaskCardProps> = ({
   autoExpand = false,
   availableStatuses = Object.values(Status),
   availablePriorities = Object.values(Priority),
-  isDailyView = false
+  isDailyView = false,
+  updateTags = []
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [newUpdate, setNewUpdate] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<TaskAttachment[]>([]);
+  const [newUpdateColor, setNewUpdateColor] = useState<string>(updateTags[0]?.color || '#94a3b8');
+  const [showColorPicker, setShowColorPicker] = useState(false);
+
   const cardRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const taskFileInputRef = useRef<HTMLInputElement>(null);
@@ -50,6 +55,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [editUpdateContent, setEditUpdateContent] = useState('');
   const [editUpdateDate, setEditUpdateDate] = useState('');
+  const [editUpdateColor, setEditUpdateColor] = useState<string | null>(null);
 
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempValue, setTempValue] = useState('');
@@ -62,6 +68,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
       }, 300);
     }
   }, [autoExpand]);
+
+  // Ensure selected color is valid if tags change, fallback to neutral/gray
+  useEffect(() => {
+      if (updateTags.length > 0 && !updateTags.find(t => t.color === newUpdateColor)) {
+          setNewUpdateColor(updateTags[0]?.color || '#94a3b8');
+      }
+  }, [updateTags]);
+
+  const latestUpdate = useMemo(() => {
+    if (!task.updates || task.updates.length === 0) return null;
+    return [...task.updates].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+  }, [task.updates]);
 
   const getPriorityColor = (p: string) => {
     if (p === Priority.HIGH) return 'bg-red-100 text-red-800 border-red-200';
@@ -149,16 +167,20 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const handleSubmitUpdate = (e: React.FormEvent | React.KeyboardEvent) => {
     e.preventDefault();
     if (newUpdate.trim() || pendingAttachments.length > 0) {
-      onAddUpdate(task.id, newUpdate, pendingAttachments.length > 0 ? pendingAttachments : undefined);
+      onAddUpdate(task.id, newUpdate, pendingAttachments.length > 0 ? pendingAttachments : undefined, newUpdateColor);
       setNewUpdate('');
       setPendingAttachments([]);
+      // Keep selected color for subsequent updates
+      setShowColorPicker(false);
     }
   };
 
-  const startEditingUpdate = (update: { id: string, content: string, timestamp: string }) => {
+  const startEditingUpdate = (update: { id: string, content: string, timestamp: string, highlightColor?: string }) => {
     if (isReadOnly) return;
     setEditingUpdateId(update.id);
     setEditUpdateContent(update.content);
+    // Explicitly set to null if undefined to ensure controlled state consistency
+    setEditUpdateColor(update.highlightColor || null);
     
     const d = new Date(update.timestamp);
     const year = d.getFullYear();
@@ -171,6 +193,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
     setEditingUpdateId(null);
     setEditUpdateContent('');
     setEditUpdateDate('');
+    setEditUpdateColor(null);
   };
 
   const saveEditedUpdate = (updateId: string) => {
@@ -180,7 +203,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
          newTimestamp = new Date(`${editUpdateDate}T12:00:00`).toISOString();
       }
 
-      onEditUpdate(task.id, updateId, editUpdateContent.trim(), newTimestamp);
+      onEditUpdate(task.id, updateId, editUpdateContent.trim(), newTimestamp, editUpdateColor);
       setEditingUpdateId(null);
     }
   };
@@ -358,6 +381,28 @@ const TaskCard: React.FC<TaskCardProps> = ({
             </div>
         )}
 
+        {/* Latest Update Preview - Enhanced for Prompt Requirement */}
+        {latestUpdate && (
+            <div 
+                className="mt-3 bg-white/50 rounded-lg p-2.5 text-xs text-slate-600 border border-slate-100 hover:border-indigo-100 transition-colors group/preview flex items-start gap-3 shadow-sm"
+                style={{ borderLeftWidth: '3px', borderLeftColor: latestUpdate.highlightColor || '#cbd5e1' }}
+            >
+                <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider group-hover/preview:text-indigo-400 transition-colors">
+                            Latest Update
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-400">
+                            {formatDate(latestUpdate.timestamp)}
+                        </span>
+                    </div>
+                    <p className="line-clamp-2 leading-relaxed text-slate-700 font-medium">
+                        {latestUpdate.content}
+                    </p>
+                </div>
+            </div>
+        )}
+
         <div className="flex items-center justify-between mt-4">
           <div className="flex items-center gap-4 text-sm text-slate-500">
             <div className="flex items-center gap-1 group relative">
@@ -441,7 +486,34 @@ const TaskCard: React.FC<TaskCardProps> = ({
                         rows={3}
                         autoFocus={autoExpand}
                     />
-                    <div className="absolute right-2 bottom-2.5 flex items-center gap-1">
+                    <div className="absolute right-2 bottom-2.5 flex items-center gap-2">
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={() => setShowColorPicker(!showColorPicker)}
+                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="Tag Color"
+                            >
+                                <div className="w-4 h-4 rounded-full border border-slate-200" style={{ backgroundColor: newUpdateColor }} />
+                            </button>
+                            {showColorPicker && (
+                                <div className="absolute bottom-full right-0 mb-2 p-2 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col gap-1 z-10 w-32 max-h-48 overflow-y-auto custom-scrollbar">
+                                    {updateTags.length > 0 ? updateTags.map((c) => (
+                                        <button
+                                            key={c.id}
+                                            type="button"
+                                            onClick={() => { setNewUpdateColor(c.color); setShowColorPicker(false); }}
+                                            className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left"
+                                        >
+                                            <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{ backgroundColor: c.color }} />
+                                            <span className="truncate text-slate-600 font-medium">{c.label}</span>
+                                        </button>
+                                    )) : (
+                                        <span className="text-[10px] text-slate-400 p-2">No tags defined</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                         <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
@@ -507,14 +579,33 @@ const TaskCard: React.FC<TaskCardProps> = ({
                   <div className="flex-grow">
                     {editingUpdateId === update.id ? (
                       <div className="flex gap-2 items-center">
-                        <input
-                          type="text"
+                        <div className="relative group/edit-color">
+                            <button type="button" className="p-1.5 hover:bg-slate-100 rounded">
+                                <div className="w-3 h-3 rounded-full border border-slate-200" style={{ backgroundColor: editUpdateColor || '#cbd5e1' }} />
+                            </button>
+                            <div className="absolute bottom-full left-0 mb-1 p-1 bg-white rounded shadow-lg border border-slate-200 hidden group-hover/edit-color:flex flex-col gap-1 z-10 w-32 max-h-48 overflow-y-auto custom-scrollbar">
+                                <button type="button" onClick={() => setEditUpdateColor(null)} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left">
+                                    <div className="w-3 h-3 rounded-full border border-slate-200 bg-slate-100 shrink-0" />
+                                    <span className="text-slate-500">None</span>
+                                </button>
+                                {updateTags && updateTags.length > 0 && updateTags.map(tag => (
+                                    <button key={tag.id} type="button" onClick={() => setEditUpdateColor(tag.color)} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left">
+                                        <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{backgroundColor: tag.color}} />
+                                        <span className="truncate">{tag.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <textarea
                           value={editUpdateContent}
                           onChange={(e) => setEditUpdateContent(e.target.value)}
-                          className="flex-grow p-2 text-xs border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                          className="flex-grow p-2 text-xs border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white resize-y min-h-[60px]"
                           autoFocus
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') saveEditedUpdate(update.id);
+                            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                e.preventDefault();
+                                saveEditedUpdate(update.id);
+                            }
                             if (e.key === 'Escape') cancelEditingUpdate();
                           }}
                         />
@@ -534,8 +625,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
                     ) : (
                       <div className="space-y-2">
                         <div className="relative">
-                            <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 shadow-sm text-xs group-hover:pr-14">
-                            {update.content}
+                            <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 shadow-sm text-xs group-hover:pr-14 flex items-start gap-2">
+                                <div className="mt-1 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: update.highlightColor || '#cbd5e1' }} title="Tag Color"/>
+                                <span className="flex-1 whitespace-pre-wrap">{update.content}</span>
                             </div>
                             {!isReadOnly && (
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

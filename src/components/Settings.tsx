@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Download, HardDrive, List, Plus, X, Trash2, Edit2, Key, Eye, EyeOff, Cloud, AlertTriangle, Palette, FolderOpen, Save, RefreshCw, Folder } from 'lucide-react';
-import { Task, DailyLog, Observation, FirebaseConfig, AppConfig, Status, BackupSettings } from '../types';
+import { Download, HardDrive, List, Plus, X, Trash2, Edit2, Key, Eye, EyeOff, Cloud, AlertTriangle, Palette, FolderOpen, Save, RefreshCw, Folder, CheckCircle2, Tag } from 'lucide-react';
+import { Task, DailyLog, Observation, FirebaseConfig, AppConfig, Status, BackupSettings, HighlightOption } from '../types';
 import { initFirebase } from '../services/firebaseService';
+import { saveManualBackup } from '../services/backupService';
 
 interface SettingsProps {
   tasks: Task[];
@@ -177,6 +178,110 @@ const ListEditor = ({
     );
 };
 
+const TagEditor = ({
+    tags = [],
+    onUpdate
+}: {
+    tags: HighlightOption[],
+    onUpdate: (tags: HighlightOption[]) => void
+}) => {
+    const [newLabel, setNewLabel] = useState('');
+    const [newColor, setNewColor] = useState('#6366f1');
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editLabel, setEditLabel] = useState('');
+
+    const handleAdd = () => {
+        if (newLabel.trim()) {
+            const id = newLabel.toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).substr(2, 5);
+            onUpdate([...tags, { id, label: newLabel.trim(), color: newColor }]);
+            setNewLabel('');
+            setNewColor('#6366f1'); // reset to default indigo
+        }
+    };
+
+    const handleUpdateTag = (id: string, updates: Partial<HighlightOption>) => {
+        onUpdate(tags.map(t => t.id === id ? { ...t, ...updates } : t));
+        if (editingId === id && updates.label) setEditingId(null);
+    };
+
+    const handleDelete = (id: string) => {
+        if (confirm("Delete this tag?")) {
+            onUpdate(tags.filter(t => t.id !== id));
+        }
+    };
+
+    return (
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 h-full">
+            <div className="mb-3 flex items-center justify-between">
+                <h4 className="font-bold text-slate-700 text-[10px] uppercase tracking-widest flex items-center gap-2">
+                    Update Tags
+                </h4>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4 min-h-[40px]">
+                {tags.map((tag) => (
+                    <div key={tag.id} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 text-[10px] font-bold text-slate-600 shadow-sm group">
+                        <div className="relative w-3 h-3 shrink-0 rounded-full border border-slate-200 overflow-hidden cursor-pointer hover:scale-110 transition-transform">
+                            <input 
+                                type="color" 
+                                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] p-0 border-0 opacity-0 cursor-pointer"
+                                value={tag.color}
+                                onChange={(e) => handleUpdateTag(tag.id, { color: e.target.value })}
+                                title="Change Color"
+                            />
+                            <div 
+                                className="w-full h-full pointer-events-none"
+                                style={{ backgroundColor: tag.color }}
+                            />
+                        </div>
+
+                        {editingId === tag.id ? (
+                            <input 
+                                autoFocus
+                                className="bg-transparent border-none outline-none w-20 text-indigo-600"
+                                value={editLabel}
+                                onChange={e => setEditLabel(e.target.value)}
+                                onBlur={() => handleUpdateTag(tag.id, { label: editLabel })}
+                                onKeyDown={e => e.key === 'Enter' && handleUpdateTag(tag.id, { label: editLabel })}
+                            />
+                        ) : (
+                            <>
+                                <span onDoubleClick={() => { setEditingId(tag.id); setEditLabel(tag.label); }}>{tag.label}</span>
+                                <button onClick={() => { setEditingId(tag.id); setEditLabel(tag.label); }} className="text-slate-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Edit2 size={10} />
+                                </button>
+                                <button onClick={() => handleDelete(tag.id)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <X size={10} />
+                                </button>
+                            </>
+                        )}
+                    </div>
+                ))}
+            </div>
+            <div className="flex gap-2 items-center">
+                <div className="relative w-8 h-8 shrink-0 rounded-lg border border-slate-300 overflow-hidden cursor-pointer bg-white">
+                    <input 
+                        type="color" 
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200%] h-[200%] p-0 border-0 opacity-0 cursor-pointer"
+                        value={newColor}
+                        onChange={(e) => setNewColor(e.target.value)}
+                        title="New Tag Color"
+                    />
+                    <div className="w-full h-full pointer-events-none" style={{ backgroundColor: newColor }} />
+                </div>
+                <input 
+                    type="text" 
+                    value={newLabel} 
+                    onChange={(e) => setNewLabel(e.target.value)} 
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()} 
+                    placeholder="New tag label..." 
+                    className="flex-1 px-3 py-1.5 text-xs border border-slate-300 rounded-lg outline-none focus:border-indigo-500 bg-white" 
+                />
+                <button onClick={handleAdd} className="bg-indigo-600 text-white p-1.5 rounded-lg hover:bg-indigo-700"><Plus size={14} /></button>
+            </div>
+        </div>
+    );
+};
+
 const ResourceBar = ({ label, current, limit }: { label: string, current: number, limit: number }) => {
     const percentage = Math.min(100, (current / limit) * 100);
     const isCritical = percentage > 85;
@@ -206,6 +311,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [geminiKey, setGeminiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [configJson, setConfigJson] = useState('');
+  const [lastManualBackup, setLastManualBackup] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -253,21 +359,12 @@ const Settings: React.FC<SettingsProps> = ({
     e.target.value = '';
   };
 
-  const handleDownloadBackup = () => {
+  const handleDownloadBackup = async () => {
     const data = { tasks, logs, observations, offDays, appConfig };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    
-    const now = new Date();
-    const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    link.download = `ProTrack_Backup_${timestamp}.json`;
-    
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const fileName = await saveManualBackup(data);
+    if (fileName) {
+        setLastManualBackup(fileName);
+    }
   };
 
   return (
@@ -285,40 +382,49 @@ const Settings: React.FC<SettingsProps> = ({
                   <p className="text-xs text-slate-500">Double-click headers to rename. Use the color dot to customize themes.</p>
               </div>
           </div>
-          <div className="p-6 grid md:grid-cols-3 gap-6">
-              <ListEditor 
-                title={appConfig.groupLabels?.statuses || "Task Statuses"} 
-                color={appConfig.groupColors?.statuses}
-                items={appConfig.taskStatuses} 
-                onUpdate={items => onUpdateConfig({...appConfig, taskStatuses: items})} 
-                onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, statuses: newTitle }})}
-                onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, statuses: newColor }})}
-                placeholder="Add status..."
-                itemColors={appConfig.itemColors}
-                onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
-              />
-              <ListEditor 
-                title={appConfig.groupLabels?.priorities || "Priorities"} 
-                color={appConfig.groupColors?.priorities}
-                items={appConfig.taskPriorities} 
-                onUpdate={items => onUpdateConfig({...appConfig, taskPriorities: items})} 
-                onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, priorities: newTitle }})}
-                onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, priorities: newColor }})}
-                placeholder="Add priority..."
-                itemColors={appConfig.itemColors}
-                onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
-              />
-              <ListEditor 
-                title={appConfig.groupLabels?.observations || "Observation Groups"} 
-                color={appConfig.groupColors?.observations}
-                items={appConfig.observationStatuses} 
-                onUpdate={items => onUpdateConfig({...appConfig, observationStatuses: items})} 
-                onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, observations: newTitle }})}
-                onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, observations: newColor }})}
-                placeholder="Add group..."
-                itemColors={appConfig.itemColors}
-                onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
-              />
+          <div className="p-6 space-y-6">
+            <div className="grid md:grid-cols-3 gap-6">
+                <ListEditor 
+                    title={appConfig.groupLabels?.statuses || "Task Statuses"} 
+                    color={appConfig.groupColors?.statuses}
+                    items={appConfig.taskStatuses} 
+                    onUpdate={items => onUpdateConfig({...appConfig, taskStatuses: items})} 
+                    onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, statuses: newTitle }})}
+                    onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, statuses: newColor }})}
+                    placeholder="Add status..."
+                    itemColors={appConfig.itemColors}
+                    onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
+                />
+                <ListEditor 
+                    title={appConfig.groupLabels?.priorities || "Priorities"} 
+                    color={appConfig.groupColors?.priorities}
+                    items={appConfig.taskPriorities} 
+                    onUpdate={items => onUpdateConfig({...appConfig, taskPriorities: items})} 
+                    onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, priorities: newTitle }})}
+                    onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, priorities: newColor }})}
+                    placeholder="Add priority..."
+                    itemColors={appConfig.itemColors}
+                    onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
+                />
+                <ListEditor 
+                    title={appConfig.groupLabels?.observations || "Observation Groups"} 
+                    color={appConfig.groupColors?.observations}
+                    items={appConfig.observationStatuses} 
+                    onUpdate={items => onUpdateConfig({...appConfig, observationStatuses: items})} 
+                    onRenameTitle={newTitle => onUpdateConfig({...appConfig, groupLabels: { ...appConfig.groupLabels!, observations: newTitle }})}
+                    onUpdateColor={newColor => onUpdateConfig({...appConfig, groupColors: { ...appConfig.groupColors!, observations: newColor }})}
+                    placeholder="Add group..."
+                    itemColors={appConfig.itemColors}
+                    onItemColorChange={(item, color) => onUpdateConfig({...appConfig, itemColors: { ...(appConfig.itemColors || {}), [item]: color }})}
+                />
+            </div>
+            {/* Tag Editor Section */}
+            <div className="border-t border-slate-100 pt-6">
+                <TagEditor 
+                    tags={appConfig.updateHighlightOptions || []}
+                    onUpdate={(tags) => onUpdateConfig({ ...appConfig, updateHighlightOptions: tags })}
+                />
+            </div>
           </div>
       </section>
 
@@ -399,7 +505,17 @@ const Settings: React.FC<SettingsProps> = ({
                         <div className="text-right mr-4 hidden md:block">
                             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Last Backup</span>
                             <span className="text-xs font-mono text-slate-600">
-                                {backupSettings.lastBackup ? new Date(backupSettings.lastBackup).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) : 'Never'}
+                                {backupSettings.lastBackup 
+                                    ? new Date(backupSettings.lastBackup).toLocaleString([], { 
+                                        year: 'numeric', 
+                                        month: 'numeric', 
+                                        day: 'numeric', 
+                                        hour: 'numeric', 
+                                        minute: '2-digit', 
+                                        hour12: true 
+                                      }) 
+                                    : 'Never'
+                                }
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -491,10 +607,18 @@ const Settings: React.FC<SettingsProps> = ({
       </section>
 
       <div className="grid grid-cols-2 gap-4">
-          <button onClick={handleDownloadBackup} className="flex items-center justify-center gap-3 p-6 bg-slate-900 text-white rounded-2xl border border-slate-800 hover:bg-black transition-all group shadow-xl">
-              <Download className="text-indigo-400 group-hover:text-white" />
-              <span className="text-sm font-bold uppercase tracking-widest">Download Full System Backup (JSON)</span>
-          </button>
+          <div className="flex flex-col gap-2">
+            <button onClick={handleDownloadBackup} className="flex items-center justify-center gap-3 p-6 bg-slate-900 text-white rounded-2xl border border-slate-800 hover:bg-black transition-all group shadow-xl">
+                <Download className="text-indigo-400 group-hover:text-white" />
+                <span className="text-sm font-bold uppercase tracking-widest">Download Full System Backup (JSON)</span>
+            </button>
+            {lastManualBackup && (
+                <div className="text-center text-[10px] text-slate-500 flex items-center justify-center gap-1.5 animate-fade-in">
+                    <CheckCircle2 size={10} className="text-emerald-500" />
+                    Last manual backup saved as: <span className="font-mono text-slate-700 font-bold">{lastManualBackup}</span>
+                </div>
+            )}
+          </div>
           
           <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
              <div className="flex items-center justify-center gap-3 p-6 bg-white text-slate-700 rounded-2xl border-2 border-dashed border-slate-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all shadow-sm">
