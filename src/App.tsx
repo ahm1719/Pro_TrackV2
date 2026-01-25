@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, 
@@ -53,7 +54,7 @@ import {
   verifyPermission 
 } from './services/backupService';
 
-const BUILD_VERSION = "V2.12.1";
+const BUILD_VERSION = "V2.12.3";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -613,7 +614,7 @@ const App: React.FC = () => {
                         <AlertTriangle size={18} /> High Priority Due Today ({highPriorityDueToday.length})
                     </h3>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        {highPriorityDueToday.map(t => <TaskCard key={t.id} task={t} onUpdateStatus={updateTaskStatus} onEdit={() => { setHighlightedTaskId(t.id); setView(ViewMode.TASKS); }} onDelete={deleteTask} onAddUpdate={addUpdateToTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} onUpdateTask={updateTaskFields} updateTags={appConfig.updateHighlightOptions} />)}
+                        {highPriorityDueToday.map(t => <TaskCard key={t.id} task={t} onUpdateStatus={updateTaskStatus} onNavigate={() => { setHighlightedTaskId(t.id); setView(ViewMode.TASKS); }} onDelete={deleteTask} onAddUpdate={addUpdateToTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} onUpdateTask={updateTaskFields} updateTags={appConfig.updateHighlightOptions} />)}
                     </div>
                 </div>
              )}
@@ -624,7 +625,7 @@ const App: React.FC = () => {
                         <AlertTriangle size={18} /> Overdue Items ({overdueTasks.length})
                     </h3>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                        {overdueTasks.map(t => <TaskCard key={t.id} task={t} onUpdateStatus={updateTaskStatus} onEdit={() => { setHighlightedTaskId(t.id); setView(ViewMode.TASKS); }} onDelete={deleteTask} onAddUpdate={addUpdateToTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} onUpdateTask={updateTaskFields} updateTags={appConfig.updateHighlightOptions} />)}
+                        {overdueTasks.map(t => <TaskCard key={t.id} task={t} onUpdateStatus={updateTaskStatus} onNavigate={() => { setHighlightedTaskId(t.id); setView(ViewMode.TASKS); }} onDelete={deleteTask} onAddUpdate={addUpdateToTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} onUpdateTask={updateTaskFields} updateTags={appConfig.updateHighlightOptions} />)}
                     </div>
                 </div>
              )}
