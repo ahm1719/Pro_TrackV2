@@ -1,0 +1,70 @@
+name: Pull from ProTrack_Dev -> Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Dev branch/tag/commit to pull (default: main)"
+        required: false
+        default: "main"
+      message:
+        description: "Commit message in production"
+        required: false
+        default: "Deploy: sync from ProTrack_Dev"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Production repo (self)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout Dev repo
+        uses: actions/checkout@v4
+        with:
+          repository: ahm1719/ProTrack_Dev
+          ref: ${{ inputs.ref }}
+          path: devsrc
+          token: ${{ secrets.SYNC_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Ensure rsync is installed
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      - name: Replace production contents with Dev contents
+        run: |
+          # Remove everything in prod workspace except .git
+          find . -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+
+          # Copy Dev -> Prod, excluding Dev workflow files
+          rsync -a --delete \
+            --exclude '/.git' \
+            --exclude '/.github' \
+            ./devsrc/ ./
+
+      - name: Commit and push to production
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          git config user.name "prod-deploy-bot"
+          git config user.email "prod-deploy-bot@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+            exit 0
+          fi
+
+          git commit -m "${{ inputs.message }} (${{ inputs.ref }})"
+
+          git remote set-url origin "https://x-access-token:${SYNC_TOKEN}@github.com/ahm1719/Pro_TrackV2.git"
+          git push origin HEAD:main
