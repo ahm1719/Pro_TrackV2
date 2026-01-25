@@ -39,12 +39,25 @@ jobs:
       - name: Ensure rsync is installed
         run: sudo apt-get update && sudo apt-get install -y rsync
 
+      - name: Debug - show workspace folders (before sync)
+        run: |
+          echo "Top-level folders:"
+          ls -la
+          echo "Devsrc exists?"
+          ls -la devsrc || true
+          echo "Devsrc top-level contents:"
+          ls -la devsrc || true
+
       - name: Replace production contents with Dev contents
         run: |
-          # Remove everything in prod workspace except .git
-          find . -mindepth 1 -maxdepth 1 ! -name ".git" -exec rm -rf {} +
+          # Remove everything in prod workspace except .git, .github (workflows), and devsrc
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name ".git" \
+            ! -name ".github" \
+            ! -name "devsrc" \
+            -exec rm -rf {} +
 
-          # Copy Dev -> Prod, excluding Dev workflow files
+          # Copy Dev -> Prod, excluding workflow folder and git internals
           rsync -a --delete \
             --exclude '/.git' \
             --exclude '/.github' \
