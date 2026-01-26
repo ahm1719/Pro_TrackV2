@@ -13,7 +13,7 @@ on:
         default: "Deploy: sync from ProTrack_Dev"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   sync:
@@ -25,6 +25,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+          submodules: false
 
       - name: Checkout Dev repo into devsrc
         uses: actions/checkout@v4
@@ -35,25 +36,28 @@ jobs:
           token: ${{ secrets.SYNC_TOKEN }}
           fetch-depth: 0
           persist-credentials: false
+          submodules: false
 
       - name: Ensure rsync is installed
         run: sudo apt-get update && sudo apt-get install -y rsync
 
       - name: Replace production contents with Dev contents (safe)
         run: |
-          # 1) Remove everything in prod workspace except .git, .github, and devsrc
+          # 1) Remove everything in production EXCEPT .git, .github (workflows), and devsrc
           find . -mindepth 1 -maxdepth 1 \
             ! -name ".git" \
             ! -name ".github" \
             ! -name "devsrc" \
             -exec rm -rf {} +
 
-          # 2) Sync Dev -> Prod, but DO NOT delete/overwrite workflow folder or devsrc itself
+          # 2) Sync dev -> prod root (do not touch .git or .github)
           rsync -a --delete \
             --exclude '/.git' \
             --exclude '/.github' \
-            --exclude '/devsrc' \
-            ./devsrc/ ./
+            devsrc/ ./
+
+          # 3) IMPORTANT: remove devsrc so it never gets committed
+          rm -rf devsrc
 
       - name: Commit and push to production
         env:
@@ -71,6 +75,5 @@ jobs:
 
           git commit -m "${{ inputs.message }} (${{ inputs.ref }})"
 
-          # Authenticate push using token
           git remote set-url origin "https://x-access-token:${SYNC_TOKEN}@github.com/ahm1719/Pro_TrackV2.git"
           git push origin HEAD:main
