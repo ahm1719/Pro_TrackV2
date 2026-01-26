@@ -41,23 +41,34 @@ jobs:
       - name: Ensure rsync is installed
         run: sudo apt-get update && sudo apt-get install -y rsync
 
-      - name: Replace production contents with Dev contents (safe)
+      - name: Replace production contents with Dev contents (atomic, safe)
+        shell: bash
         run: |
-          # 1) Remove everything in production EXCEPT .git, .github (workflows), and devsrc
-          find . -mindepth 1 -maxdepth 1 \
-            ! -name ".git" \
-            ! -name ".github" \
-            ! -name "devsrc" \
-            -exec rm -rf {} +
+          set -euo pipefail
 
-          # 2) Sync dev -> prod root (do not touch .git or .github)
+          # 1) Prepare a clean staging folder
+          rm -rf _incoming
+          mkdir -p _incoming
+
+          # 2) Copy Dev -> staging (this never touches prod files yet)
           rsync -a --delete \
             --exclude '/.git' \
             --exclude '/.github' \
-            devsrc/ ./
+            devsrc/ _incoming/
 
-          # 3) IMPORTANT: remove devsrc so it never gets committed
-          rm -rf devsrc
+          # 3) Now wipe production working tree (keep .git and .github and staging)
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name ".git" \
+            ! -name ".github" \
+            ! -name "_incoming" \
+            -exec rm -rf {} +
+
+          # 4) Move staging into production root
+          rsync -a --delete _incoming/ ./
+
+          # 5) Cleanup staging + devsrc so they never get committed
+          rm -rf _incoming devsrc
+
 
       - name: Commit and push to production
         env:
