@@ -30,7 +30,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onEdit, 
   onDelete, 
   onAddUpdate, 
-  onEditUpdate,
+  onEditUpdate, 
   onDeleteUpdate,
   allowDelete = true, 
   isReadOnly = false,
@@ -57,6 +57,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   const [editUpdateContent, setEditUpdateContent] = useState('');
   const [editUpdateDate, setEditUpdateDate] = useState('');
   const [editUpdateColor, setEditUpdateColor] = useState<string | null>(null);
+  const [showEditColorPicker, setShowEditColorPicker] = useState(false);
 
   const [editingField, setEditingField] = useState<string | null>(null);
   const [tempValue, setTempValue] = useState('');
@@ -182,6 +183,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
     setEditUpdateContent(update.content);
     // Explicitly set to null if undefined to ensure controlled state consistency
     setEditUpdateColor(update.highlightColor || null);
+    setShowEditColorPicker(false);
     
     const d = new Date(update.timestamp);
     const year = d.getFullYear();
@@ -195,6 +197,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
     setEditUpdateContent('');
     setEditUpdateDate('');
     setEditUpdateColor(null);
+    setShowEditColorPicker(false);
   };
 
   const saveEditedUpdate = (updateId: string) => {
@@ -206,6 +209,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
       onEditUpdate(task.id, updateId, editUpdateContent.trim(), newTimestamp, editUpdateColor);
       setEditingUpdateId(null);
+      setShowEditColorPicker(false);
     }
   };
 
@@ -233,7 +237,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   };
 
   return (
-    <div ref={cardRef} className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden transition-all duration-300 hover:shadow-md ${isCompleted ? 'opacity-60 bg-slate-50' : ''} ${autoExpand ? 'ring-2 ring-indigo-500 shadow-lg' : ''}`}>
+    <div ref={cardRef} className={`bg-white rounded-xl shadow-sm border border-slate-200 transition-all duration-300 hover:shadow-md ${isCompleted ? 'opacity-60 bg-slate-50' : ''} ${autoExpand ? 'ring-2 ring-indigo-500 shadow-lg' : ''}`}>
       <div className="p-5">
         <div className="flex justify-between items-start mb-3">
           <div className="flex flex-wrap gap-2 items-center">
@@ -464,14 +468,14 @@ const TaskCard: React.FC<TaskCardProps> = ({
       <div className="border-t border-slate-100">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="w-full px-5 py-2 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+          className={`w-full px-5 py-2 flex items-center justify-center gap-2 text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors ${!isExpanded ? 'rounded-b-xl' : ''}`}
         >
           {isExpanded ? 'Hide History' : (isReadOnly ? 'View History' : 'View History & Add Update')}
           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
 
         {isExpanded && (
-          <div className="px-5 pb-5 bg-slate-50">
+          <div className="px-5 pb-5 bg-slate-50 rounded-b-xl">
             {!isReadOnly && (
               <div className="pt-4 space-y-2">
                 <form onSubmit={handleSubmitUpdate}>
@@ -500,21 +504,24 @@ const TaskCard: React.FC<TaskCardProps> = ({
                                 <div className="w-4 h-4 rounded-full border border-slate-200" style={{ backgroundColor: newUpdateColor }} />
                             </button>
                             {showColorPicker && (
-                                <div className="absolute bottom-full right-0 mb-2 p-2 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col gap-1 z-10 w-32 max-h-48 overflow-y-auto custom-scrollbar">
-                                    {updateTags.length > 0 ? updateTags.map((c) => (
-                                        <button
-                                            key={c.id}
-                                            type="button"
-                                            onClick={() => { setNewUpdateColor(c.color); setShowColorPicker(false); }}
-                                            className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left"
-                                        >
-                                            <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{ backgroundColor: c.color }} />
-                                            <span className="truncate text-slate-600 font-medium">{c.label}</span>
-                                        </button>
-                                    )) : (
-                                        <span className="text-[10px] text-slate-400 p-2">No tags defined</span>
-                                    )}
-                                </div>
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowColorPicker(false)} />
+                                    <div className="absolute bottom-full right-0 mb-2 p-2 bg-white rounded-xl shadow-lg border border-slate-200 flex flex-col gap-1 z-50 w-32 max-h-48 overflow-y-auto custom-scrollbar">
+                                        {updateTags.length > 0 ? updateTags.map((c) => (
+                                            <button
+                                                key={c.id}
+                                                type="button"
+                                                onClick={() => { setNewUpdateColor(c.color); setShowColorPicker(false); }}
+                                                className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left"
+                                            >
+                                                <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{ backgroundColor: c.color }} />
+                                                <span className="truncate text-slate-600 font-medium">{c.label}</span>
+                                            </button>
+                                        )) : (
+                                            <span className="text-[10px] text-slate-400 p-2">No tags defined</span>
+                                        )}
+                                    </div>
+                                </>
                             )}
                         </div>
                         <button
@@ -560,7 +567,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
               </div>
             )}
 
-            <div className="space-y-3 max-h-80 overflow-y-auto pr-1 custom-scrollbar mt-4">
+            <div className="space-y-3 mt-4">
               {task.updates.length === 0 && (
                 <p className="text-center text-xs text-slate-400 py-2">No updates recorded yet.</p>
               )}
@@ -582,22 +589,36 @@ const TaskCard: React.FC<TaskCardProps> = ({
                   <div className="flex-grow">
                     {editingUpdateId === update.id ? (
                       <div className="flex gap-2 items-center">
-                        <div className="relative group/edit-color">
-                            <button type="button" className="p-1.5 hover:bg-slate-100 rounded">
+                        <div className="relative">
+                            <button 
+                                type="button" 
+                                onClick={() => setShowEditColorPicker(!showEditColorPicker)}
+                                className="p-1.5 hover:bg-slate-100 rounded"
+                            >
                                 <div className="w-3 h-3 rounded-full border border-slate-200" style={{ backgroundColor: editUpdateColor || '#cbd5e1' }} />
                             </button>
-                            <div className="absolute bottom-full left-0 mb-1 p-1 bg-white rounded shadow-lg border border-slate-200 hidden group-hover/edit-color:flex flex-col gap-1 z-10 w-32 max-h-48 overflow-y-auto custom-scrollbar">
-                                <button type="button" onClick={() => setEditUpdateColor(null)} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left">
-                                    <div className="w-3 h-3 rounded-full border border-slate-200 bg-slate-100 shrink-0" />
-                                    <span className="text-slate-500">None</span>
-                                </button>
-                                {updateTags && updateTags.length > 0 && updateTags.map(tag => (
-                                    <button key={tag.id} type="button" onClick={() => setEditUpdateColor(tag.color)} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left">
-                                        <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{backgroundColor: tag.color}} />
-                                        <span className="truncate">{tag.label}</span>
-                                    </button>
-                                ))}
-                            </div>
+                            {showEditColorPicker && (
+                                <>
+                                    <div className="fixed inset-0 z-40" onClick={() => setShowEditColorPicker(false)} />
+                                    <div className="absolute top-full left-0 mt-1 p-1 bg-white rounded shadow-lg border border-slate-200 flex flex-col gap-1 z-50 w-32 max-h-48 overflow-y-auto custom-scrollbar">
+                                        <button type="button" onClick={() => { setEditUpdateColor(null); setShowEditColorPicker(false); }} className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left">
+                                            <div className="w-3 h-3 rounded-full border border-slate-200 bg-slate-100 shrink-0" />
+                                            <span className="text-slate-500">None</span>
+                                        </button>
+                                        {updateTags && updateTags.length > 0 && updateTags.map(tag => (
+                                            <button 
+                                                key={tag.id} 
+                                                type="button" 
+                                                onClick={() => { setEditUpdateColor(tag.color); setShowEditColorPicker(false); }}
+                                                className="flex items-center gap-2 p-1 hover:bg-slate-50 rounded text-xs w-full text-left"
+                                            >
+                                                <div className="w-3 h-3 rounded-full border border-slate-200 shrink-0" style={{backgroundColor: tag.color}} />
+                                                <span className="truncate">{tag.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
                         </div>
                         <textarea
                           value={editUpdateContent}
