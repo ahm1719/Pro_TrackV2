@@ -62,6 +62,7 @@ export interface Subtask {
   id: string;
   title: string;
   completed: boolean;
+  completedAt?: string; // ISO String
 }
 
 export interface TaskUpdate {
@@ -70,6 +71,11 @@ export interface TaskUpdate {
   content: string;
   attachments?: TaskAttachment[];
   highlightColor?: string; // For visual tagging of updates (e.g., Blockers)
+}
+
+export interface RecurrenceConfig {
+  type: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  interval: number;
 }
 
 export interface Task {
@@ -83,6 +89,7 @@ export interface Task {
   priority: string; 
   updates: TaskUpdate[]; // Historical updates/comments
   subtasks?: Subtask[]; // List of actionable sub-items
+  recurrence?: RecurrenceConfig; // Recurrence settings
   createdAt: string;
   attachments?: TaskAttachment[]; // Global task attachments
   order?: number; // For manual sorting in daily view
