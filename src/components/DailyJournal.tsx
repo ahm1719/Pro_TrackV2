@@ -44,9 +44,10 @@ interface MiniCalendarProps {
   selectedDate: string;
   onSelectDate: (date: string) => void;
   offDays: string[];
+  tasks: Task[];
 }
 
-const MiniCalendar = ({ selectedDate, onSelectDate, offDays }: MiniCalendarProps) => {
+const MiniCalendar = ({ selectedDate, onSelectDate, offDays, tasks }: MiniCalendarProps) => {
   const [sYear, sMonth, sDay] = selectedDate.split('-').map(Number);
   const [viewDate, setViewDate] = useState(new Date(sYear, sMonth - 1, 1));
 
@@ -60,6 +61,14 @@ const MiniCalendar = ({ selectedDate, onSelectDate, offDays }: MiniCalendarProps
 
   const prevMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
   const nextMonth = () => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+
+  const getTaskCount = (dateStr: string) => {
+    return tasks.filter(t => 
+        t.dueDate === dateStr && 
+        t.status !== Status.DONE && 
+        t.status !== Status.ARCHIVED
+    ).length;
+  };
 
   const generateWeeks = () => {
     const weeks = [];
@@ -83,18 +92,30 @@ const MiniCalendar = ({ selectedDate, onSelectDate, offDays }: MiniCalendarProps
             const dayOfWeek = d.getDay();
             const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
             const isOffDay = offDays.includes(dateStr);
+            const taskCount = getTaskCount(dateStr);
+
             let bgClass = 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300';
             if (isOffDay) bgClass = 'bg-red-50 dark:bg-red-900/20 text-red-400 line-through decoration-red-300';
             else if (isWeekend) bgClass = 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500';
             if (isSelected) bgClass = 'bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none scale-110 font-bold';
             else if (!isSelected && isToday) bgClass = 'border-2 border-indigo-500 text-indigo-700 dark:text-indigo-400 font-bold';
+            
+            let badgeColorClass = 'bg-emerald-500 text-white';
+            if (taskCount >= 3) badgeColorClass = 'bg-amber-500 text-white';
+            if (taskCount >= 5) badgeColorClass = 'bg-red-500 text-white';
+
             currentWeek.days.push(
                 <button
                     key={dateStr}
                     onClick={() => onSelectDate(dateStr)}
-                    className={`h-8 w-8 rounded-full flex items-center justify-center text-xs transition-all duration-200 ${bgClass}`}
+                    className={`relative h-8 w-8 rounded-full flex items-center justify-center text-xs transition-all duration-200 ${bgClass}`}
                 >
                     {dayNum}
+                    {taskCount > 0 && (
+                        <div className={`absolute -top-1.5 -right-1.5 w-4 h-4 text-[9px] font-bold rounded-full flex items-center justify-center border border-white dark:border-slate-800 z-10 ${badgeColorClass} shadow-sm`}>
+                            {taskCount}
+                        </div>
+                    )}
                 </button>
             );
         } else {
@@ -132,6 +153,13 @@ const MiniCalendar = ({ selectedDate, onSelectDate, offDays }: MiniCalendarProps
                      </div>
                  </div>
              ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex justify-center">
+                <div className="flex items-center gap-3 text-[9px] text-slate-400 font-medium">
+                    <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Light</span>
+                    <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500"></div> Med</span>
+                    <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Heavy</span>
+                </div>
           </div>
       </div>
     </div>
@@ -220,7 +248,7 @@ const DailyJournal: React.FC<DailyJournalProps> = ({ tasks, logs, onAddLog, onUp
       </div>
 
       <div className="space-y-4">
-        <MiniCalendar selectedDate={entryDate} onSelectDate={setEntryDate} offDays={offDays} />
+        <MiniCalendar selectedDate={entryDate} onSelectDate={setEntryDate} offDays={offDays} tasks={tasks} />
         
         <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30 shadow-sm space-y-3">
             <h4 className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center gap-2">
