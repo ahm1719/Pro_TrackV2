@@ -1,7 +1,7 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Task, Status, Priority, TaskAttachment, HighlightOption, Subtask, RecurrenceConfig } from '../types';
-import { X, Calendar, Clock, Paperclip, File, Download as DownloadIcon, CheckCircle2, Circle, Plus, Trash2, Save, Edit2, AlertCircle, Archive, Hourglass, Repeat, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Calendar, Clock, Paperclip, File, Download as DownloadIcon, CheckCircle2, Circle, Plus, Trash2, Save, Edit2, AlertCircle, Archive, Hourglass, Repeat, ChevronLeft, ChevronRight, GripVertical } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 interface TaskDetailModalProps {
@@ -19,6 +19,51 @@ interface TaskDetailModalProps {
   onDeleteTask: (id: string) => void;
   statusColors?: Record<string, string>;
 }
+
+const AutoResizeTextarea = ({ value, onChange, className, placeholder, onKeyDown, autoFocus }: any) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    const adjustHeight = () => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+        }
+    };
+
+    useLayoutEffect(() => {
+        adjustHeight();
+    }, [value]);
+
+    useEffect(() => {
+        // Re-adjust on window resize to handle wrapping changes
+        const handleResize = () => adjustHeight();
+        window.addEventListener('resize', handleResize);
+        
+        // Safety check: layout shifts slightly after mount due to animations or flexbox settling
+        const timer = setTimeout(adjustHeight, 50);
+        
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            clearTimeout(timer);
+        };
+    }, []);
+
+    return (
+        <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => {
+                onChange(e);
+                adjustHeight();
+            }}
+            className={className}
+            placeholder={placeholder}
+            rows={1}
+            onKeyDown={onKeyDown}
+            autoFocus={autoFocus}
+        />
+    );
+};
 
 const WorkloadDatePicker: React.FC<{ 
     selectedDate: string; 
@@ -167,6 +212,9 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const taskFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Subtask Drag State
+  const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null);
+
   // Editing state for updates
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [editUpdateContent, setEditUpdateContent] = useState('');
@@ -177,16 +225,6 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   // Recurrence State
   const [recurrenceType, setRecurrenceType] = useState<string>(task.recurrence?.type || 'none');
   const [recurrenceInterval, setRecurrenceInterval] = useState<number>(task.recurrence?.interval || 1);
-
-  // Auto-resize textareas
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  
-  useEffect(() => {
-    if (descriptionRef.current) {
-        descriptionRef.current.style.height = 'auto';
-        descriptionRef.current.style.height = descriptionRef.current.scrollHeight + 'px';
-    }
-  }, [task.description]);
 
   const getContrastYIQ = (hexcolor: string) => {
     if (!hexcolor) return '#ffffff';
@@ -299,7 +337,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   };
 
   // Subtask Handlers
-  const handleAddSubtask = (e: React.FormEvent) => {
+  const handleAddSubtask = (e: React.FormEvent | React.KeyboardEvent) => {
     e.preventDefault();
     if (!newSubtaskTitle.trim()) return;
     const newSubtask: Subtask = {
@@ -338,6 +376,35 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       onUpdateTask(task.id, { subtasks: updatedSubtasks });
   };
 
+  // Subtask Drag & Drop Handlers
+  const handleSubtaskDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedSubtaskId(id);
+    e.dataTransfer.effectAllowed = "move";
+    // Set transparent drag image or default
+  };
+
+  const handleSubtaskDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Necessary to allow dropping
+  };
+
+  const handleSubtaskDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedSubtaskId || draggedSubtaskId === targetId) return;
+
+    const currentSubtasks = task.subtasks || [];
+    const fromIndex = currentSubtasks.findIndex(s => s.id === draggedSubtaskId);
+    const toIndex = currentSubtasks.findIndex(s => s.id === targetId);
+
+    if (fromIndex === -1 || toIndex === -1) return;
+
+    const newSubtasks = [...currentSubtasks];
+    const [movedSubtask] = newSubtasks.splice(fromIndex, 1);
+    newSubtasks.splice(toIndex, 0, movedSubtask);
+
+    onUpdateTask(task.id, { subtasks: newSubtasks });
+    setDraggedSubtaskId(null);
+  };
+
   // Update Editing Handlers
   const startEditingUpdate = (update: { id: string, content: string, timestamp: string, highlightColor?: string }) => {
     setEditingUpdateId(update.id);
@@ -374,7 +441,7 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex justify-center items-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onClick={onClose}>
       <div 
-        className="bg-white dark:bg-slate-800 w-full max-w-5xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative"
+        className="bg-white dark:bg-slate-800 w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col relative"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -420,17 +487,11 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 {/* Description */}
                 <div className="group">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 block">Description</label>
-                    <textarea 
-                        ref={descriptionRef}
+                    <AutoResizeTextarea 
                         value={task.description}
-                        onChange={(e) => {
-                            onUpdateTask(task.id, { description: e.target.value });
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
-                        }}
-                        className="w-full text-xl font-medium text-slate-800 dark:text-slate-200 bg-transparent border-none outline-none resize-none placeholder-slate-300 focus:ring-0 p-0 leading-relaxed"
+                        onChange={(e: any) => onUpdateTask(task.id, { description: e.target.value })}
+                        className="w-full text-xl font-medium text-slate-800 dark:text-slate-200 bg-transparent border-none outline-none resize-none placeholder-slate-300 focus:ring-0 p-0 leading-relaxed overflow-hidden"
                         placeholder="Task description..."
-                        rows={1}
                     />
                 </div>
 
@@ -449,7 +510,19 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                     
                     <div className="space-y-1 mb-3">
                         {task.subtasks?.map(st => (
-                            <div key={st.id} className="flex items-start gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg group transition-colors">
+                            <div 
+                                key={st.id} 
+                                draggable="true"
+                                onDragStart={(e) => handleSubtaskDragStart(e, st.id)}
+                                onDragOver={handleSubtaskDragOver}
+                                onDrop={(e) => handleSubtaskDrop(e, st.id)}
+                                className={`flex items-start gap-3 p-2 rounded-lg group transition-all ${
+                                    draggedSubtaskId === st.id ? 'opacity-30 border-2 border-dashed border-indigo-400' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                                }`}
+                            >
+                                <div className="mt-1.5 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 hover:text-indigo-500 dark:hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <GripVertical size={14} />
+                                </div>
                                 <button 
                                     onClick={() => toggleSubtask(st.id)}
                                     className={`mt-1 shrink-0 ${st.completed ? 'text-emerald-500' : 'text-slate-300 hover:text-indigo-500 dark:text-slate-500 dark:hover:text-indigo-400'}`}
@@ -458,10 +531,10 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                                     {st.completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
                                 </button>
                                 <div className="flex-1 min-w-0">
-                                    <input 
+                                    <AutoResizeTextarea 
                                         value={st.title}
-                                        onChange={(e) => updateSubtaskTitle(st.id, e.target.value)}
-                                        className={`w-full bg-transparent border-none outline-none text-sm p-0 focus:ring-0 ${st.completed ? 'line-through text-slate-400 decoration-slate-300' : 'text-slate-700 dark:text-slate-300 font-medium'}`}
+                                        onChange={(e: any) => updateSubtaskTitle(st.id, e.target.value)}
+                                        className={`w-full bg-transparent border-none outline-none text-sm p-0 focus:ring-0 resize-none overflow-hidden ${st.completed ? 'line-through text-slate-400 decoration-slate-300' : 'text-slate-700 dark:text-slate-300 font-medium'}`}
                                         placeholder="Subtask title"
                                     />
                                     {st.completed && st.completedAt && (
@@ -481,20 +554,21 @@ const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                         ))}
                     </div>
                     
-                    <form onSubmit={handleAddSubtask} className="flex items-center gap-3 pl-2 opacity-60 hover:opacity-100 transition-opacity">
-                        <Plus size={18} className="text-slate-400" />
-                        <input 
+                    <div className="flex items-start gap-3 pl-8 opacity-60 hover:opacity-100 transition-opacity group/add">
+                        <Plus size={18} className="text-slate-400 mt-2" />
+                        <AutoResizeTextarea 
                             value={newSubtaskTitle}
-                            onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                            onChange={(e: any) => setNewSubtaskTitle(e.target.value)}
                             placeholder="Add a subtask..."
-                            className="flex-1 bg-transparent border-none outline-none text-sm py-2 placeholder-slate-400 dark:text-slate-300"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                            className="flex-1 bg-transparent border-none outline-none text-sm py-2 placeholder-slate-400 dark:text-slate-300 resize-none overflow-hidden"
+                            onKeyDown={(e: any) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
                                     handleAddSubtask(e);
                                 }
                             }}
                         />
-                    </form>
+                    </div>
                 </div>
 
                 {/* History / Updates */}
