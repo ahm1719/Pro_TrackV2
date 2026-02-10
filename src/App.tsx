@@ -60,7 +60,7 @@ import {
   verifyPermission 
 } from './services/backupService';
 
-const BUILD_VERSION = "V4.4.1 - Granular Purge";
+const BUILD_VERSION = "V4.4.3 - Search UX";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -98,6 +98,22 @@ const getEndOfWeek = (date: Date) => {
   const endOfWeek = new Date(d.setDate(diff));
   endOfWeek.setHours(23, 59, 59, 999);
   return endOfWeek.toISOString().split('T')[0];
+};
+
+// Helper for fuzzy date matching (Supports YYYY-MM-DD and DD/MM)
+const checkDateMatch = (dateStr: string | undefined, query: string) => {
+  if (!dateStr) return false;
+  // 1. Direct Match (ISO format)
+  if (dateStr.includes(query)) return true;
+  
+  // 2. DD/MM Format Match
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+      const [y, m, d] = parts;
+      const ddmm = `${d}/${m}`;
+      if (ddmm.includes(query)) return true;
+  }
+  return false;
 };
 
 const App: React.FC = () => {
@@ -163,11 +179,13 @@ const App: React.FC = () => {
       t.displayId.toLowerCase().includes(q) ||
       t.projectId.toLowerCase().includes(q) ||
       t.description.toLowerCase().includes(q) ||
+      checkDateMatch(t.dueDate, q) ||
       t.updates.some(u => u.content.toLowerCase().includes(q))
     ).slice(0, 10);
 
     const matchedLogs = logs.filter(l => 
-      l.content.toLowerCase().includes(q)
+      l.content.toLowerCase().includes(q) ||
+      checkDateMatch(l.date, q)
     ).slice(0, 10);
 
     const matchedObs = observations.filter(o => 
@@ -573,7 +591,12 @@ const App: React.FC = () => {
 
   const filteredTasks = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    const base = tasks.filter(t => t.description.toLowerCase().includes(q) || t.displayId.toLowerCase().includes(q) || t.updates.some(u => u.content.toLowerCase().includes(q)));
+    const base = tasks.filter(t => 
+        t.description.toLowerCase().includes(q) || 
+        t.displayId.toLowerCase().includes(q) || 
+        checkDateMatch(t.dueDate, q) || 
+        t.updates.some(u => u.content.toLowerCase().includes(q))
+    );
     if (activeTaskTab === 'completed') return base.filter(t => t.status === Status.DONE || t.status === Status.ARCHIVED);
     const activeBase = base.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED);
     const endOfWeek = getEndOfWeek(new Date());
@@ -722,6 +745,15 @@ const App: React.FC = () => {
                 }} 
                 className="w-full pl-10 pr-10 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-lg text-sm outline-none dark:text-slate-200 transition-all focus:ring-2 focus:ring-indigo-500" 
               />
+              
+              {searchQuery && (
+                <button 
+                  onClick={() => { setSearchQuery(''); setShowSearchResults(false); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                >
+                  <X size={14} />
+                </button>
+              )}
               
               {/* Global Search Results Dropdown */}
               {showSearchResults && globalSearchResults && (
