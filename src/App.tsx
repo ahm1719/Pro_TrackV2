@@ -61,7 +61,7 @@ import {
   getStoredDirectoryHandle, 
 } from './services/backupService';
 
-const BUILD_VERSION = "V4.6.0 - Today Workspace";
+const BUILD_VERSION = "V4.6.1 - UI Polish";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -768,7 +768,7 @@ const App: React.FC = () => {
                                                 <span className="text-[10px] font-mono font-black text-indigo-600 dark:text-indigo-400">{t.displayId}</span>
                                                 <div className={`w-1.5 h-1.5 rounded-full ${t.priority === Priority.HIGH ? 'bg-red-500' : t.priority === Priority.MEDIUM ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                                             </div>
-                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1">{t.title || t.description}</p>
+                                            <p className={`text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : ''}`}>{t.title || t.description}</p>
                                         </div>
                                     </div>
                                 ))
@@ -804,9 +804,12 @@ const App: React.FC = () => {
                                         <div className="flex-1 min-w-0 opacity-70 group-hover:opacity-100">
                                             <div className="flex justify-between items-center mb-0.5">
                                                 <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400">{t.displayId}</span>
-                                                <CheckCircle2 size={12} className="text-emerald-500" />
+                                                {t.status === Status.DONE ? <CheckCircle2 size={12} className="text-emerald-500" /> : <div className="w-2 h-2 rounded-full border border-emerald-200 dark:border-emerald-700" />}
                                             </div>
-                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 line-through decoration-emerald-200">{t.title || t.description}</p>
+                                            {/* Fix: Stripped line-through and conditional cross-out logic */}
+                                            <p className={`text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through decoration-emerald-200 opacity-50' : ''}`}>
+                                                {t.title || t.description}
+                                            </p>
                                         </div>
                                     </div>
                                 ))
@@ -855,7 +858,7 @@ const App: React.FC = () => {
                                             <div className="flex justify-between items-center mb-1">
                                                 <span className="font-mono font-bold flex items-center gap-1">{t.displayId} {t.recurrence && <Repeat size={10} className="text-indigo-400" />}</span>
                                             </div>
-                                            <p className="line-clamp-2 leading-tight font-bold mb-1">{t.title || t.description}</p>
+                                            <p className={`line-clamp-2 leading-tight font-bold mb-1 ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : ''}`}>{t.title || t.description}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -978,7 +981,7 @@ const App: React.FC = () => {
                             </h4>
                             {globalSearchResults.logs.map(l => (
                               <button key={l.id} onClick={() => handleSearchResultClick('log', l.id)} className="w-full text-left p-3 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-xl transition-all group flex gap-3 items-start">
-                                  <div className="bg-emerald-100 dark:bg-emerald-900/50 p-2 rounded-lg text-emerald-600 dark:text-emerald-400 shrink-0"><Clock size={16}/></div>
+                                  <div className="bg-emerald-100 dark:bg-emerald-900/50 p-2 rounded-lg text-indigo-600 dark:text-indigo-400 shrink-0"><Clock size={16}/></div>
                                   <div className="min-w-0">
                                       <span className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">{l.date}</span>
                                       <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">{l.content}</p>
@@ -992,7 +995,7 @@ const App: React.FC = () => {
                         {globalSearchResults.observations.length > 0 && (
                           <div className="space-y-1">
                             <h4 className="px-3 py-1 text-[9px] font-black text-purple-500 dark:text-purple-400 uppercase tracking-tighter flex items-center gap-2">
-                                <StickyNote size={12}/> Observations
+                                <MessageSquare size={12}/> Observations
                             </h4>
                             {globalSearchResults.observations.map(o => (
                               <button key={o.id} onClick={() => handleSearchResultClick('obs', o.id)} className="w-full text-left p-3 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl transition-all group flex gap-3 items-start">
