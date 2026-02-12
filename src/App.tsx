@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, 
@@ -22,7 +23,10 @@ import {
   Maximize2,
   FileText,
   StickyNote,
-  ArrowRight
+  ArrowRight,
+  GripVertical,
+  ArrowDownToLine,
+  CheckCircle
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -54,13 +58,10 @@ import { FullLogo } from './components/Branding';
 import { subscribeToCollections, syncData, initFirebase } from './services/firebaseService';
 import { generateWeeklySummary } from './services/geminiService';
 import { 
-  selectBackupFolder, 
-  performBackup, 
   getStoredDirectoryHandle, 
-  verifyPermission 
 } from './services/backupService';
 
-const BUILD_VERSION = "V4.4.6 - Search Shortcut";
+const BUILD_VERSION = "V4.6.0 - Today Workspace";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -80,7 +81,8 @@ const DEFAULT_CONFIG: AppConfig = {
   aiReportConfig: {
     customInstructions: '',
     periodType: 'current_week'
-  }
+  },
+  retentionPeriodDays: 60
 };
 
 const getWeekNumber = (d: Date): number => {
@@ -100,13 +102,9 @@ const getEndOfWeek = (date: Date) => {
   return endOfWeek.toISOString().split('T')[0];
 };
 
-// Helper for fuzzy date matching (Supports YYYY-MM-DD and DD/MM)
 const checkDateMatch = (dateStr: string | undefined, query: string) => {
   if (!dateStr) return false;
-  // 1. Direct Match (ISO format)
   if (dateStr.includes(query)) return true;
-  
-  // 2. DD/MM Format Match
   const parts = dateStr.split('-');
   if (parts.length === 3) {
       const [y, m, d] = parts;
@@ -144,12 +142,13 @@ const App: React.FC = () => {
 
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const isMouseDownOnBackdrop = useRef(false);
 
-  // --- Add Missing States ---
   const [newTaskForm, setNewTaskForm] = useState({
     source: `CW${getWeekNumber(new Date())}`,
     projectId: '',
     displayId: '',
+    title: '',
     description: '',
     dueDate: new Date().toISOString().split('T')[0],
     status: Status.NOT_STARTED as string,
@@ -159,20 +158,14 @@ const App: React.FC = () => {
   });
 
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-
   const [backupSettings, setBackupSettings] = useState<BackupSettings>({ enabled: false, intervalMinutes: 10, lastBackup: null, folderName: null });
   const [backupStatus, setBackupStatus] = useState<'idle' | 'running' | 'error' | 'permission_needed'>('idle');
   const backupDirHandle = useRef<FileSystemDirectoryHandle | null>(null);
-
-  // Refs to track hydration status to prevent accidental wipes during first cloud contact
   const isHydrated = useRef({ tasks: false, logs: false, observations: false });
-
-  // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('protrack_theme') === 'dark');
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId), [tasks, activeTaskId]);
 
-  // --- Global Search Logic ---
   const globalSearchResults = useMemo(() => {
     if (!searchQuery.trim() || searchQuery.length < 2) return null;
     const q = searchQuery.toLowerCase();
@@ -180,6 +173,7 @@ const App: React.FC = () => {
     const matchedTasks = tasks.filter(t => 
       t.displayId.toLowerCase().includes(q) ||
       t.projectId.toLowerCase().includes(q) ||
+      (t.title || '').toLowerCase().includes(q) ||
       t.description.toLowerCase().includes(q) ||
       checkDateMatch(t.dueDate, q) ||
       t.updates.some(u => u.content.toLowerCase().includes(q))
@@ -200,7 +194,17 @@ const App: React.FC = () => {
     return { tasks: matchedTasks, logs: matchedLogs, observations: matchedObs };
   }, [searchQuery, tasks, logs, observations]);
 
-  // --- Add Missing Helper Functions ---
+  const handleBackdropMouseDown = (e: React.MouseEvent) => {
+    isMouseDownOnBackdrop.current = e.target === e.currentTarget;
+  };
+
+  const createBackdropClickHandler = (onClose: () => void) => (e: React.MouseEvent) => {
+    if (isMouseDownOnBackdrop.current && e.target === e.currentTarget) {
+      onClose();
+    }
+    isMouseDownOnBackdrop.current = false;
+  };
+
   const activeProjects = useMemo(() => {
     const projects = tasks
       .filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED)
@@ -220,18 +224,15 @@ const App: React.FC = () => {
     return projectId ? `${projectId}-${maxSeq + 1}` : '';
   };
 
-  // Sync state with localStorage whenever items change
   useEffect(() => {
     localStorage.setItem('protrack_data', JSON.stringify({ tasks, logs, observations, offDays }));
   }, [tasks, logs, observations, offDays]);
 
-  // Apply Theme
   useEffect(() => {
     if (isDarkMode) { document.documentElement.classList.add('dark'); localStorage.setItem('protrack_theme', 'dark'); } 
     else { document.documentElement.classList.remove('dark'); localStorage.setItem('protrack_theme', 'light'); }
   }, [isDarkMode]);
 
-  // Handle global Escape key to close modals and search
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -256,7 +257,6 @@ const App: React.FC = () => {
     };
   }, [expandedDay, showReportModal, showNewTaskModal, activeTaskId, showSearchResults, dashboardStatusFilter]);
 
-  // Global Keyboard Shortcuts (Ctrl+F)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -379,7 +379,7 @@ const App: React.FC = () => {
     setActiveTaskId(newTask.id); 
     setShowNewTaskModal(false);
     setNewTaskForm({
-      source: `CW${getWeekNumber(new Date())}`, projectId: '', displayId: '', description: '',
+      source: `CW${getWeekNumber(new Date())}`, projectId: '', displayId: '', title: '', description: '',
       dueDate: new Date().toISOString().split('T')[0], status: appConfig.taskStatuses[0] || Status.NOT_STARTED,
       priority: appConfig.taskPriorities[1] || Priority.MEDIUM, recurrenceType: 'none', recurrenceInterval: 1
     });
@@ -507,7 +507,6 @@ const App: React.FC = () => {
   };
 
   const deleteTask = (id: string) => {
-    if (!confirm('Delete task?')) return;
     setTasks(prev => {
         if (isSyncEnabled) syncData([{ type: 'task', action: 'delete', id }]);
         return prev.filter(t => t.id !== id);
@@ -536,36 +535,70 @@ const App: React.FC = () => {
     if (isSyncEnabled) syncData([{ type: 'config', action: 'update', data: newConfig }]);
   };
 
-  const handleDragStart = (name: string, taskId: string) => {
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
     setDraggedTaskId(taskId);
+    e.dataTransfer.setData("text/plain", taskId);
+    e.dataTransfer.effectAllowed = "move";
   };
 
-  const handleDrop = (e: React.DragEvent, targetTaskId: string, dateStr: string) => {
+  /**
+   * Enhanced Drop Handler supporting:
+   * 1. Reordering within any day list
+   * 2. Moving between Pool and Processed columns for Today
+   */
+  const handleDrop = (e: React.DragEvent, targetTaskId: string | null, dateStr: string, zone?: 'pool' | 'processed') => {
     e.preventDefault();
-    const draggedId = e.dataTransfer.getData("text/plain");
-    if (!draggedId || draggedId === targetTaskId) { setDraggedTaskId(null); return; }
+    const draggedId = e.dataTransfer.getData("text/plain") || draggedTaskId;
+    if (!draggedId) return;
+
     setTasks(prevTasks => {
-        const dayTaskList = prevTasks.filter(t => t.dueDate === dateStr);
+        const isToday = dateStr === new Date().toLocaleDateString('en-CA');
+        const syncActions: SyncAction[] = [];
+        const taskToMove = prevTasks.find(t => t.id === draggedId);
+        if (!taskToMove) return prevTasks;
+
+        // Determine list for the target day
+        let dayTaskList = prevTasks.filter(t => t.dueDate === dateStr);
+        
+        // If it's today, we might be filtering by Pool/Processed
+        if (isToday) {
+            if (zone === 'pool') {
+                dayTaskList = dayTaskList.filter(t => t.processedDate !== dateStr);
+            } else if (zone === 'processed') {
+                dayTaskList = dayTaskList.filter(t => t.processedDate === dateStr);
+            }
+        }
+
         const fromIndex = dayTaskList.findIndex(t => t.id === draggedId);
-        const toIndex = dayTaskList.findIndex(t => t.id === targetTaskId);
-        if (fromIndex === -1 || toIndex === -1) return prevTasks;
+        let toIndex = targetTaskId ? dayTaskList.findIndex(t => t.id === targetTaskId) : dayTaskList.length;
+
+        // Optimization: Same list reordering
         const newList = [...dayTaskList];
-        const [movedItem] = newList.splice(fromIndex, 1);
-        newList.splice(toIndex, 0, movedItem);
+        if (fromIndex !== -1) {
+            newList.splice(fromIndex, 1);
+        }
+        
+        if (toIndex === -1) toIndex = newList.length;
+        newList.splice(toIndex, 0, { ...taskToMove, processedDate: isToday ? (zone === 'processed' ? dateStr : '') : taskToMove.processedDate });
+
         const orderMap = new Map();
         newList.forEach((t, index) => orderMap.set(t.id, index));
-        const syncActions: SyncAction[] = [];
+
         const finalTasks = prevTasks.map(t => {
-            if (orderMap.has(t.id)) {
-                const newOrder = orderMap.get(t.id);
-                if (t.order !== newOrder) {
-                    const updated = { ...t, order: newOrder };
-                    syncActions.push({ type: 'task', action: 'update', id: updated.id, data: updated });
-                    return updated;
-                }
+            let updated = t;
+            if (t.id === draggedId) {
+                updated = { ...t, order: orderMap.get(t.id), processedDate: isToday ? (zone === 'processed' ? dateStr : '') : t.processedDate };
+            } else if (orderMap.has(t.id)) {
+                updated = { ...t, order: orderMap.get(t.id) };
+            }
+
+            if (updated !== t) {
+                syncActions.push({ type: 'task', action: 'update', id: updated.id, data: updated });
+                return updated;
             }
             return t;
         });
+
         if (isSyncEnabled && syncActions.length > 0) syncData(syncActions);
         return finalTasks;
     });
@@ -594,7 +627,7 @@ const App: React.FC = () => {
     weekDays.forEach(d => {
       const dayTasks = tasks.filter(t => t.dueDate === d);
       dayTasks.sort((a, b) => {
-          if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+          if (a.order !== undefined && b.order !== undefined && a.order !== b.order) return a.order - b.order;
           const wA = getWeight(a.priority), wB = getWeight(b.priority);
           if (wA !== wB) return wB - wA; 
           return a.displayId.localeCompare(b.displayId, undefined, { numeric: true });
@@ -607,6 +640,7 @@ const App: React.FC = () => {
   const filteredTasks = useMemo(() => {
     const q = searchQuery.toLowerCase();
     const base = tasks.filter(t => 
+        (t.title || '').toLowerCase().includes(q) ||
         t.description.toLowerCase().includes(q) || 
         t.displayId.toLowerCase().includes(q) || 
         checkDateMatch(t.dueDate, q) || 
@@ -636,7 +670,6 @@ const App: React.FC = () => {
       setActiveTaskId(id);
     } else if (type === 'obs') {
       setView(ViewMode.OBSERVATIONS);
-      // Logic to highlight specific obs could be added here if needed
     } else if (type === 'log') {
       const log = logs.find(l => l.id === id);
       if (log && log.taskId) {
@@ -686,15 +719,152 @@ const App: React.FC = () => {
         );
 
       case ViewMode.TASKS:
+        const todayTasks = weekTasks[todayStr] || [];
+        const poolTasks = todayTasks.filter(t => t.processedDate !== todayStr);
+        const processedTasks = todayTasks.filter(t => t.processedDate === todayStr);
+
         return (
           <div className="h-full flex flex-col space-y-6 animate-fade-in">
-             <div className="flex justify-between items-center"><h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">Daily Tasks</h1><div className="flex gap-3"><button onClick={() => setShowNewTaskModal(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-lg font-bold"><Plus size={20} /> New Task</button></div></div>
-             <div className="flex gap-4 overflow-x-auto pb-4 snap-x custom-scrollbar shrink-0 h-56">
-                {weekDays.map(d => {
-                    const dayTasks = weekTasks[d] || [], activeCount = dayTasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED).length;
-                    return (<div key={d} className={`min-w-[280px] w-[280px] p-4 rounded-2xl border flex flex-col transition-all ${d === todayStr ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800 ring-2 ring-indigo-100 shadow-md scale-105 z-10' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm'}`}><div className="flex justify-between items-start mb-3 border-b pb-2 border-slate-100 dark:border-slate-700"><div><span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{new Date(d).toLocaleDateString([], { weekday: 'long' })}</span><span className="text-lg font-bold text-slate-800 dark:text-slate-100">{new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span></div><div className="flex items-center gap-2">{activeCount > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{activeCount}</span>}<button onClick={(e) => { e.stopPropagation(); setExpandedDay(d); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 p-1 rounded transition-colors" title="Expand Day"><Maximize2 size={14} /></button></div></div><div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">{dayTasks.map(t => (<div key={t.id} draggable="true" onDragStart={() => handleDragStart('name', t.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleDrop(e, t.id, d)} onClick={() => setActiveTaskId(t.id)} className={`p-3 rounded-xl border text-xs shadow-sm hover:ring-2 hover:ring-indigo-300 cursor-pointer select-none transition-all ${t.status === Status.DONE ? 'bg-emerald-50 dark:bg-emerald-900/20 opacity-70' : 'bg-white dark:bg-slate-800'} border-slate-200 dark:border-slate-700`}><div className="flex justify-between items-center mb-1"><span className="font-mono font-bold flex items-center gap-1">{t.displayId} {t.recurrence && <Repeat size={10} className="text-indigo-400" />}</span></div><p className="line-clamp-2 leading-tight">{t.description}</p></div>))}</div></div>);
-                })}
+             <div className="flex justify-between items-center"><h1 className="text-3xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">Daily Workspace</h1><div className="flex gap-3"><button onClick={() => setShowNewTaskModal(true)} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition-all shadow-lg font-bold"><Plus size={20} /> New Task</button></div></div>
+             
+             {/* TODAY'S WORKSPACE - SPLIT VIEW */}
+             <div className="bg-slate-100 dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-inner">
+                <div className="flex items-center gap-3 mb-6">
+                    <Calendar className="text-indigo-600 dark:text-indigo-400" size={24} />
+                    <div>
+                        <h2 className="text-xl font-black text-slate-800 dark:text-slate-200 leading-tight">Today's Focus</h2>
+                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{new Date(todayStr).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 min-h-[300px]">
+                    {/* TASK POOL */}
+                    <div 
+                        className="flex flex-col bg-white dark:bg-slate-800/40 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 transition-colors"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => handleDrop(e, null, todayStr, 'pool')}
+                    >
+                        <div className="p-4 border-b dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800/80 rounded-t-2xl">
+                            <h3 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2"><ArrowDownToLine size={14} /> Task Pool</h3>
+                            <span className="text-[10px] font-black bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-full">{poolTasks.length}</span>
+                        </div>
+                        <div className="flex-1 p-3 space-y-2 overflow-y-auto max-h-[400px] custom-scrollbar">
+                            {poolTasks.length === 0 ? (
+                                <div className="h-32 flex flex-col items-center justify-center text-slate-300 dark:text-slate-700 italic text-xs">Drop tasks here to pending</div>
+                            ) : (
+                                poolTasks.map(t => (
+                                    <div 
+                                        key={t.id} 
+                                        draggable="true" 
+                                        onDragStart={(e) => handleDragStart(e, t.id)}
+                                        onDragOver={(e) => e.preventDefault()} 
+                                        onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, todayStr, 'pool'); }}
+                                        onClick={() => setActiveTaskId(t.id)} 
+                                        className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all group flex items-start gap-2"
+                                    >
+                                        <div className="mt-0.5 text-slate-300 dark:text-slate-600 group-hover:text-indigo-400"><GripVertical size={14} /></div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-center mb-0.5">
+                                                <span className="text-[10px] font-mono font-black text-indigo-600 dark:text-indigo-400">{t.displayId}</span>
+                                                <div className={`w-1.5 h-1.5 rounded-full ${t.priority === Priority.HIGH ? 'bg-red-500' : t.priority === Priority.MEDIUM ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                            </div>
+                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1">{t.title || t.description}</p>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                    {/* PROCESSED */}
+                    <div 
+                        className="flex flex-col bg-emerald-50/30 dark:bg-emerald-900/5 rounded-2xl border-2 border-dashed border-emerald-100 dark:border-emerald-900/30 transition-colors"
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => handleDrop(e, null, todayStr, 'processed')}
+                    >
+                        <div className="p-4 border-b border-emerald-100 dark:border-emerald-900/30 flex justify-between items-center bg-emerald-50 dark:bg-emerald-900/20 rounded-t-2xl">
+                            <h3 className="text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-2"><CheckCircle size={14} /> Processed Tasks</h3>
+                            <span className="text-[10px] font-black bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full">{processedTasks.length}</span>
+                        </div>
+                        <div className="flex-1 p-3 space-y-2 overflow-y-auto max-h-[400px] custom-scrollbar">
+                            {processedTasks.length === 0 ? (
+                                <div className="h-32 flex flex-col items-center justify-center text-emerald-200 dark:text-emerald-900/30 italic text-xs">Move here to process today</div>
+                            ) : (
+                                processedTasks.map(t => (
+                                    <div 
+                                        key={t.id} 
+                                        draggable="true" 
+                                        onDragStart={(e) => handleDragStart(e, t.id)}
+                                        onDragOver={(e) => e.preventDefault()} 
+                                        onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, todayStr, 'processed'); }}
+                                        onClick={() => setActiveTaskId(t.id)} 
+                                        className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-emerald-400 cursor-pointer transition-all group flex items-start gap-2"
+                                    >
+                                        <div className="mt-0.5 text-emerald-100 dark:text-emerald-900 group-hover:text-emerald-400"><GripVertical size={14} /></div>
+                                        <div className="flex-1 min-w-0 opacity-70 group-hover:opacity-100">
+                                            <div className="flex justify-between items-center mb-0.5">
+                                                <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400">{t.displayId}</span>
+                                                <CheckCircle2 size={12} className="text-emerald-500" />
+                                            </div>
+                                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 line-clamp-1 line-through decoration-emerald-200">{t.title || t.description}</p>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
              </div>
+
+             {/* UPCOMING WEEK SCROLL (Starts from Tomorrow) */}
+             <div className="space-y-4">
+                <div className="flex items-center justify-between px-2">
+                    <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-2">Upcoming Deadlines</h3>
+                </div>
+                <div className="flex gap-4 overflow-x-auto pb-4 snap-x custom-scrollbar shrink-0 h-56 px-1">
+                    {weekDays.slice(1).map(d => {
+                        const dayTasks = weekTasks[d] || [], activeCount = dayTasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED).length;
+                        return (
+                            <div 
+                                key={d} 
+                                className="min-w-[280px] w-[280px] p-4 rounded-2xl border bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm flex flex-col transition-all"
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={(e) => handleDrop(e, null, d)}
+                            >
+                                <div className="flex justify-between items-start mb-3 border-b pb-2 border-slate-100 dark:border-slate-700">
+                                    <div>
+                                        <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{new Date(d).toLocaleDateString([], { weekday: 'long' })}</span>
+                                        <span className="text-lg font-bold text-slate-800 dark:text-slate-100">{new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {activeCount > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{activeCount}</span>}
+                                        <button onClick={(e) => { e.stopPropagation(); setExpandedDay(d); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 p-1 rounded transition-colors" title="Expand Day"><Maximize2 size={14} /></button>
+                                    </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                    {dayTasks.map(t => (
+                                        <div 
+                                            key={t.id} 
+                                            draggable="true" 
+                                            onDragStart={(e) => handleDragStart(e, t.id)} 
+                                            onDragOver={(e) => e.preventDefault()} 
+                                            onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, d); }} 
+                                            onClick={() => setActiveTaskId(t.id)} 
+                                            className={`p-3 rounded-xl border text-xs shadow-sm hover:ring-2 hover:ring-indigo-300 cursor-pointer select-none transition-all ${t.status === Status.DONE ? 'bg-emerald-50 dark:bg-emerald-900/20 opacity-70' : 'bg-white dark:bg-slate-800'} border-slate-200 dark:border-slate-700`}
+                                        >
+                                            <div className="flex justify-between items-center mb-1">
+                                                <span className="font-mono font-bold flex items-center gap-1">{t.displayId} {t.recurrence && <Repeat size={10} className="text-indigo-400" />}</span>
+                                            </div>
+                                            <p className="line-clamp-2 leading-tight font-bold mb-1">{t.title || t.description}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+             </div>
+
              <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-3 gap-8">
                 <div className="xl:col-span-2 flex flex-col bg-slate-100/50 dark:bg-slate-800/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-inner"><div className="bg-white dark:bg-slate-800 p-5 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4"><div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl"><button onClick={() => setActiveTaskTab('current')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'current' ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Active</button><button onClick={() => setActiveTaskTab('future')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'future' ? 'bg-white dark:bg-slate-600 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>Upcoming</button><button onClick={() => setActiveTaskTab('completed')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'completed' ? 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>Archive</button></div></div><div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 custom-scrollbar">{filteredTasks.map(t => (<div key={t.id} id={`task-card-${t.id}`}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} /></div>))}</div></div>
                 <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden flex flex-col h-full"><div className="flex-1 overflow-y-auto p-6 custom-scrollbar"><DailyJournal tasks={tasks} logs={logs} offDays={offDays} searchQuery={searchQuery} onAddLog={(l) => { const newLog = { ...l, id: uuidv4() }; setLogs(prev => { if (isSyncEnabled) syncData([{ type: 'log', action: 'create', id: newLog.id, data: newLog }]); return [...prev, newLog]; }); }} onUpdateTask={updateTaskFields} onToggleOffDay={(d) => { const next = offDays.includes(d) ? offDays.filter(x => x !== d) : [...offDays, d]; setOffDays(next); if (isSyncEnabled) syncData([{ type: 'offDays', action: 'update', data: next }]); }} onEditLog={handleEditLog} onDeleteLog={handleDeleteLog} /></div></div>
@@ -793,7 +963,7 @@ const App: React.FC = () => {
                                           <span className="text-xs font-black font-mono text-indigo-600 dark:text-indigo-400">{t.displayId}</span>
                                           <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">{t.projectId}</span>
                                       </div>
-                                      <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-1">{t.description}</p>
+                                      <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-1">{t.title || t.description}</p>
                                   </div>
                               </button>
                             ))}
@@ -851,15 +1021,15 @@ const App: React.FC = () => {
         {activeTask && (<TaskDetailModal task={activeTask} allTasks={tasks} onClose={() => setActiveTaskId(null)} onUpdateStatus={updateTaskStatus} onUpdateTask={updateTaskFields} onAddUpdate={addUpdateToTask} onEditUpdate={handleEditUpdate} onDeleteUpdate={handleDeleteUpdate} onDeleteTask={deleteTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} updateTags={appConfig.updateHighlightOptions || []} statusColors={appConfig.itemColors} />)}
         
         {/* New Task Modal */}
-        {showNewTaskModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"><form onSubmit={handleCreateTask} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in"><div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Plus size={20}/> Create New Task</h2><button type="button" onClick={() => setShowNewTaskModal(false)}><X size={20}/></button></div><div className="p-6 space-y-4">{modalError && <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-bold"><AlertTriangle size={16} /> {modalError}</div>}<div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Source (CW)</label><input required value={newTaskForm.source} onChange={e => setNewTaskForm({...newTaskForm, source: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Project ID</label><input required autoFocus list="active-projects" value={newTaskForm.projectId} onChange={e => { const pid = e.target.value; setNewTaskForm({...newTaskForm, projectId: pid, displayId: suggestNextId(pid)}); }} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /><datalist id="active-projects">{activeProjects.map(p => <option key={p} value={p} />)}</datalist></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Display ID</label><input required value={newTaskForm.displayId} onChange={e => setNewTaskForm({...newTaskForm, displayId: e.target.value})} className="w-full px-3 py-2 text-sm font-mono bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Description</label><textarea required value={newTaskForm.description} onChange={e => setNewTaskForm({...newTaskForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div></div><div className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3"><button type="button" onClick={() => setShowNewTaskModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg">Cancel</button><button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl">Create Task</button></div></form></div>)}
+        {showNewTaskModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowNewTaskModal(false))}><form onSubmit={handleCreateTask} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in"><div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Plus size={20}/> Create New Task</h2><button type="button" onClick={() => setShowNewTaskModal(false)}><X size={20}/></button></div><div className="p-6 space-y-4">{modalError && <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-bold"><AlertTriangle size={16} /> {modalError}</div>}<div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Source (CW)</label><input required value={newTaskForm.source} onChange={e => setNewTaskForm({...newTaskForm, source: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Project ID</label><input required autoFocus list="active-projects" value={newTaskForm.projectId} onChange={e => { const pid = e.target.value; setNewTaskForm({...newTaskForm, projectId: pid, displayId: suggestNextId(pid)}); }} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /><datalist id="active-projects">{activeProjects.map(p => <option key={p} value={p} />)}</datalist></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Display ID</label><input required value={newTaskForm.displayId} onChange={e => setNewTaskForm({...newTaskForm, displayId: e.target.value})} className="w-full px-3 py-2 text-sm font-mono bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Task Title</label><input required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} placeholder="Short summary for the card..." className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Description</label><textarea required value={newTaskForm.description} onChange={e => setNewTaskForm({...newTaskForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div></div><div className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3"><button type="button" onClick={() => setShowNewTaskModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg">Cancel</button><button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl">Create Task</button></div></form></div>)}
         
         {/* Weekly Report Modal */}
-        {showReportModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"><div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"><div className="p-4 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Sparkles size={18}/> Weekly AI Report</h2><button onClick={() => setShowReportModal(false)}><X size={20}/></button></div><div className="flex-1 overflow-y-auto p-6 dark:text-slate-200">{isGeneratingReport ? <div className="flex flex-col items-center justify-center py-12 gap-4"><div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p>Analyzing...</p></div> : <div className="prose prose-sm max-w-none dark:prose-invert">{generatedReport.split('\n').map((line, i) => <p key={i}>{line}</p>)}</div>}</div><div className="p-4 border-t dark:border-slate-700 flex justify-end gap-2 bg-slate-50 dark:bg-slate-800"><button onClick={() => { navigator.clipboard.writeText(generatedReport); alert('Copied!'); }} className="px-4 py-2 text-slate-600 font-bold rounded-lg hover:bg-slate-200">Copy</button><button onClick={() => setShowReportModal(false)} className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">Close</button></div></div></div>)}
+        {showReportModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowReportModal(false))}><div onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"><div className="p-4 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Sparkles size={18}/> Weekly AI Report</h2><button onClick={() => setShowReportModal(false)}><X size={20}/></button></div><div className="flex-1 overflow-y-auto p-6 dark:text-slate-200">{isGeneratingReport ? <div className="flex flex-col items-center justify-center py-12 gap-4"><div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p>Analyzing...</p></div> : <div className="prose prose-sm max-w-none dark:prose-invert">{generatedReport.split('\n').map((line, i) => <p key={i}>{line}</p>)}</div>}</div><div className="p-4 border-t dark:border-slate-700 flex justify-end gap-2 bg-slate-50 dark:bg-slate-800"><button onClick={() => { navigator.clipboard.writeText(generatedReport); alert('Copied!'); }} className="px-4 py-2 text-slate-600 font-bold rounded-lg hover:bg-slate-200">Copy</button><button onClick={() => setShowReportModal(false)} className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">Close</button></div></div></div>)}
 
         {/* Expanded Day Modal */}
         {expandedDay && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4" onClick={() => setExpandedDay(null)}>
-             <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setExpandedDay(null))}>
+             <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                 <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center bg-indigo-600 text-white shrink-0">
                    <div>
                       <h2 className="text-2xl font-bold flex items-center gap-3">
@@ -906,8 +1076,8 @@ const App: React.FC = () => {
 
         {/* Dashboard Status Drill-down Modal */}
         {dashboardStatusFilter && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40 flex items-center justify-center p-4" onClick={() => setDashboardStatusFilter(null)}>
-                <div className="bg-white dark:bg-slate-900 w-full max-w-6xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-40 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setDashboardStatusFilter(null))}>
+                <div className="bg-white dark:bg-slate-900 w-full max-w-6xl h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in" onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
                     <div className="p-6 border-b dark:border-slate-800 flex justify-between items-center shrink-0" style={{ backgroundColor: (getStatusColorHex(dashboardStatusFilter) || '#6366f1') + '20' }}>
                         <div className="flex items-center gap-3">
                             <div className="p-2 rounded-lg" style={{ backgroundColor: getStatusColorHex(dashboardStatusFilter) || '#6366f1', color: '#fff' }}>
@@ -931,7 +1101,6 @@ const App: React.FC = () => {
                                     task={t} 
                                     onUpdateStatus={updateTaskStatus} 
                                     onOpenTask={() => setActiveTaskId(t.id)}
-                                    onDelete={deleteTask}
                                     availableStatuses={appConfig.taskStatuses} 
                                     availablePriorities={appConfig.taskPriorities} 
                                     statusColors={appConfig.itemColors} 

@@ -46,6 +46,7 @@ export interface AppConfig {
     customInstructions?: string;
     periodType?: 'current_week' | '7_days' | '14_days' | '30_days';
   };
+  retentionPeriodDays?: number;
 }
 
 export interface BackupSettings {
@@ -85,6 +86,7 @@ export interface RecurrenceConfig {
 export interface Task {
   id: string; // Internal UUID
   displayId: string; // User facing ID like P1130-28
+  title?: string; // Short summary for the task card
   source: string; // CW02, CW49
   projectId: string; // New Project ID field
   description: string;
@@ -97,6 +99,7 @@ export interface Task {
   createdAt: string;
   attachments?: TaskAttachment[]; // Global task attachments
   order?: number; // For manual sorting in daily view
+  processedDate?: string; // The date (YYYY-MM-DD) when the task was moved to processed in the today view
 }
 
 export interface DailyLog {
