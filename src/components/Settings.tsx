@@ -95,8 +95,8 @@ const ListEditor = ({
     };
 
     return (
-        <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 h-full">
-            <div className="mb-3 flex items-center justify-between">
+        <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 h-full flex flex-col">
+            <div className="mb-3 flex items-center justify-between shrink-0">
                 <div className="flex-1 flex items-center gap-2">
                     {onUpdateColor && (
                         <div className="relative group/picker">
@@ -132,9 +132,9 @@ const ListEditor = ({
                     )}
                 </div>
             </div>
-            <div className="flex flex-wrap gap-2 mb-4 min-h-[40px]">
+            <div className="flex-1 flex flex-wrap content-start gap-2 mb-4 min-h-[40px]">
                 {items.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-1 bg-white dark:bg-slate-700 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 text-[10px] font-bold text-slate-600 dark:text-slate-300 shadow-sm group">
+                    <div key={idx} className="flex items-center gap-1 bg-white dark:bg-slate-700 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 text-[10px] font-bold text-slate-600 dark:text-slate-300 shadow-sm group h-fit">
                         {onItemColorChange && (
                             <div className="relative w-3 h-3 shrink-0 rounded-full border border-slate-200 dark:border-slate-500 overflow-hidden cursor-pointer hover:scale-110 transition-transform mr-1">
                                 <input 
@@ -174,7 +174,7 @@ const ListEditor = ({
                     </div>
                 ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 shrink-0">
                 <input type="text" value={newItem} onChange={(e) => setNewItem(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} placeholder={placeholder} className="flex-1 px-3 py-1.5 text-xs border border-slate-300 dark:border-slate-600 rounded-lg outline-none focus:border-indigo-500 bg-white dark:bg-slate-700 dark:text-white dark:placeholder-slate-400" />
                 <button onClick={handleAdd} className="bg-indigo-600 text-white p-1.5 rounded-lg hover:bg-indigo-700"><Plus size={14} /></button>
             </div>
@@ -213,7 +213,7 @@ const TagEditor = ({
 
     return (
         <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-700 h-full flex flex-col">
-            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-[10px] uppercase tracking-widest mb-3">{title}</h4>
+            <h4 className="font-bold text-slate-700 dark:text-slate-300 text-[10px] uppercase tracking-widest mb-3 shrink-0">{title}</h4>
             <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar min-h-[100px] mb-3">
                 {tags.map(tag => (
                     <div key={tag.id} className="flex items-center gap-2 bg-white dark:bg-slate-700 p-2 rounded-lg border border-slate-200 dark:border-slate-600 shadow-sm group">
@@ -255,7 +255,7 @@ const TagEditor = ({
                     </div>
                 ))}
             </div>
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center shrink-0">
                 <div className="relative w-6 h-6 shrink-0 rounded-full overflow-hidden border border-slate-300 dark:border-slate-500 cursor-pointer">
                      <input
                         type="color"
@@ -310,6 +310,14 @@ const Settings: React.FC<SettingsProps> = ({
   const [geminiKey, setGeminiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [customRetentionDays, setCustomRetentionDays] = useState<string>(appConfig.retentionPeriodDays?.toString() || '60');
+  
+  // Logic for custom retention window
+  const standardRetentions = [30, 60, 90, 180, 365];
+  const currentRetention = appConfig.retentionPeriodDays || 60;
+  const isStandardValue = standardRetentions.includes(currentRetention);
+  const [forceCustomMode, setForceCustomMode] = useState(false);
+  const isCustomMode = !isStandardValue || forceCustomMode;
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -410,6 +418,9 @@ const Settings: React.FC<SettingsProps> = ({
   const handleRetentionChange = (days: number) => {
     onUpdateConfig({ ...appConfig, retentionPeriodDays: days });
     setCustomRetentionDays(days.toString());
+    if (standardRetentions.includes(days)) {
+        setForceCustomMode(false);
+    }
   };
 
   return (
@@ -633,10 +644,15 @@ const Settings: React.FC<SettingsProps> = ({
                       <div className="mb-4">
                           <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest block mb-1">Retention Window</label>
                           <select 
-                            value={appConfig.retentionPeriodDays || 60}
+                            value={isCustomMode ? -1 : currentRetention}
                             onChange={(e) => {
                                 const val = parseInt(e.target.value);
-                                if (val !== -1) handleRetentionChange(val);
+                                if (val === -1) {
+                                    setForceCustomMode(true);
+                                    setCustomRetentionDays(currentRetention.toString());
+                                } else {
+                                    handleRetentionChange(val);
+                                }
                             }}
                             className="w-full p-2 text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded outline-none focus:ring-1 focus:ring-amber-500 dark:text-white"
                           >
@@ -647,7 +663,7 @@ const Settings: React.FC<SettingsProps> = ({
                               <option value={365}>1 Year (365 days)</option>
                               <option value={-1}>Custom...</option>
                           </select>
-                          {(appConfig.retentionPeriodDays !== 30 && appConfig.retentionPeriodDays !== 60 && appConfig.retentionPeriodDays !== 90 && appConfig.retentionPeriodDays !== 180 && appConfig.retentionPeriodDays !== 365) || customRetentionDays === '-1' ? (
+                          {isCustomMode ? (
                               <div className="mt-2 flex items-center gap-2">
                                   <input 
                                     type="number"
