@@ -61,7 +61,7 @@ import {
   getStoredDirectoryHandle, 
 } from './services/backupService';
 
-const BUILD_VERSION = "V4.7.0 - UI Layout Optimization";
+const BUILD_VERSION = "V4.8.0 - Off-days Update";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -112,6 +112,17 @@ const checkDateMatch = (dateStr: string | undefined, query: string) => {
       if (ddmm.includes(query)) return true;
   }
   return false;
+};
+
+const getContrastYIQ = (hexcolor: string) => {
+  if (!hexcolor) return '#ffffff';
+  const hex = hexcolor.replace('#', '');
+  if (hex.length !== 6) return '#ffffff';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+  return (yiq >= 128) ? '#1e293b' : '#ffffff';
 };
 
 const App: React.FC = () => {
@@ -184,14 +195,14 @@ const App: React.FC = () => {
       checkDateMatch(l.date, q)
     ).slice(0, 10);
 
-    const matchedObs = observations.filter(o => 
+    const matchedObservations = observations.filter(o => 
       o.content.toLowerCase().includes(q)
     ).slice(0, 10);
 
-    const total = matchedTasks.length + matchedLogs.length + matchedObs.length;
+    const total = matchedTasks.length + matchedLogs.length + matchedObservations.length;
     if (total === 0) return null;
 
-    return { tasks: matchedTasks, logs: matchedLogs, observations: matchedObs };
+    return { tasks: matchedTasks, logs: matchedLogs, observations: matchedObservations };
   }, [searchQuery, tasks, logs, observations]);
 
   const handleBackdropMouseDown = (e: React.MouseEvent) => {
@@ -541,11 +552,32 @@ const App: React.FC = () => {
     e.dataTransfer.effectAllowed = "move";
   };
 
-  /**
-   * Enhanced Drop Handler supporting:
-   * 1. Reordering within any day list
-   * 2. Moving between Pool and Processed columns for Today
-   */
+  const handleToggleOffDay = (date: string) => {
+    setOffDays(prev => {
+        const next = prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date];
+        if (isSyncEnabled) syncData([{ type: 'offDays', action: 'update', data: next }]);
+        return next;
+    });
+  };
+
+  const handleToggleOffDayRange = (dates: string[]) => {
+    setOffDays(prev => {
+        // Simple logic: if any in the range are ALREADY off, treat as clearing?
+        // Let's go with additive logic: make them all off.
+        const next = Array.from(new Set([...prev, ...dates]));
+        if (isSyncEnabled) syncData([{ type: 'offDays', action: 'update', data: next }]);
+        return next;
+    });
+  };
+
+  const handleClearOffDays = (dates: string[]) => {
+    setOffDays(prev => {
+        const next = prev.filter(d => !dates.includes(d));
+        if (isSyncEnabled) syncData([{ type: 'offDays', action: 'update', data: next }]);
+        return next;
+    });
+  };
+
   const handleDrop = (e: React.DragEvent, targetTaskId: string | null, dateStr: string, zone?: 'pool' | 'processed') => {
     e.preventDefault();
     const draggedId = e.dataTransfer.getData("text/plain") || draggedTaskId;
@@ -607,6 +639,16 @@ const App: React.FC = () => {
 
   const todayStr = new Date().toLocaleDateString('en-CA');
   const weeklyFocusCount = useMemo(() => tasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED).length, [tasks]);
+  
+  const getStatusColorHex = (s: string) => {
+      if (appConfig.itemColors && appConfig.itemColors[s]) return appConfig.itemColors[s];
+      if (s === Status.DONE) return '#10b981';
+      if (s === Status.IN_PROGRESS) return '#3b82f6';
+      if (s === Status.WAITING) return '#f59e0b';
+      if (s === Status.ARCHIVED) return '#64748b';
+      return '#cbd5e1'; 
+  };
+
   const statusSummary = useMemo(() => appConfig.taskStatuses.map(s => ({ label: s, count: tasks.filter(t => t.status === s).length })), [tasks, appConfig.taskStatuses]);
   const overdueTasks = useMemo(() => tasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED && t.dueDate && t.dueDate < todayStr), [tasks, todayStr]);
   const highPriorityDueToday = useMemo(() => tasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED && t.priority === Priority.HIGH && t.dueDate === todayStr), [tasks, todayStr]);
@@ -652,15 +694,6 @@ const App: React.FC = () => {
     if (activeTaskTab === 'future') return activeBase.filter(t => t.dueDate && t.dueDate > endOfWeek);
     return activeBase.filter(t => !t.dueDate || t.dueDate <= endOfWeek);
   }, [tasks, searchQuery, activeTaskTab]);
-
-  const getStatusColorHex = (s: string) => {
-      if (appConfig.itemColors && appConfig.itemColors[s]) return appConfig.itemColors[s];
-      if (s === Status.DONE) return '#10b981';
-      if (s === Status.IN_PROGRESS) return '#3b82f6';
-      if (s === Status.WAITING) return '#f59e0b';
-      if (s === Status.ARCHIVED) return '#64748b';
-      return '#cbd5e1'; 
-  };
 
   const handleSearchResultClick = (type: 'task' | 'obs' | 'log', id: string) => {
     setShowSearchResults(false);
@@ -728,44 +761,74 @@ const App: React.FC = () => {
                 <div className="flex items-center justify-between px-2">
                     <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-2">Weekly Timeline</h3>
                 </div>
-                <div className="flex gap-4 overflow-x-auto pb-4 snap-x custom-scrollbar shrink-0 h-56 px-1">
+                <div className="flex gap-4 overflow-x-auto pb-4 snap-x custom-scrollbar shrink-0 h-72 px-1 items-stretch">
                     {weekDays.map(d => {
                         const dayTasks = weekTasks[d] || [], activeCount = dayTasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED).length;
+                        const isOffDay = offDays.includes(d);
                         return (
                             <div 
                                 key={d} 
-                                className={`min-w-[280px] w-[280px] p-4 rounded-2xl border ${d === todayStr ? 'bg-indigo-50 border-indigo-200 ring-2 ring-indigo-100 shadow-md scale-105 z-10' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm'} flex flex-col transition-all`}
+                                className={`min-w-[280px] w-[280px] p-4 rounded-2xl border ${d === todayStr ? 'bg-indigo-50 dark:bg-indigo-950 border-indigo-200 dark:border-indigo-500 ring-2 ring-indigo-100 dark:ring-indigo-500/30 shadow-md scale-105 z-10' : isOffDay ? 'bg-rose-50/30 dark:bg-rose-900/10 border-rose-100 dark:border-rose-900/30 grayscale-[0.5]' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm'} flex flex-col transition-all`}
                                 onDragOver={(e) => e.preventDefault()}
                                 onDrop={(e) => handleDrop(e, null, d)}
                             >
                                 <div className="flex justify-between items-start mb-3 border-b pb-2 border-slate-100 dark:border-slate-700">
                                     <div>
                                         <span className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">{new Date(d).toLocaleDateString([], { weekday: 'long' })}</span>
-                                        <span className="text-lg font-bold text-slate-800 dark:text-slate-100">{new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
+                                        <span className={`text-lg font-bold ${isOffDay ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>{new Date(d).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        {isOffDay && <span className="bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-[9px] px-2 py-0.5 rounded-full font-black tracking-widest border border-rose-200 dark:border-rose-800">OFF</span>}
                                         {activeCount > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{activeCount}</span>}
                                         {d === todayStr && <span className="bg-indigo-600 text-white text-[9px] px-2 py-0.5 rounded-full font-bold">TODAY</span>}
                                         <button onClick={(e) => { e.stopPropagation(); setExpandedDay(d); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 p-1 rounded transition-colors" title="Expand Day"><Maximize2 size={14} /></button>
                                     </div>
                                 </div>
                                 <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                                    {dayTasks.map(t => (
-                                        <div 
-                                            key={t.id} 
-                                            draggable="true" 
-                                            onDragStart={(e) => handleDragStart(e, t.id)} 
-                                            onDragOver={(e) => e.preventDefault()} 
-                                            onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, d); }} 
-                                            onClick={() => setActiveTaskId(t.id)} 
-                                            className={`p-3 rounded-xl border text-xs shadow-sm hover:ring-2 hover:ring-indigo-300 cursor-pointer select-none transition-all ${t.status === Status.DONE ? 'bg-emerald-50 dark:bg-emerald-900/20 opacity-70' : 'bg-white dark:bg-slate-800'} border-slate-200 dark:border-slate-700`}
-                                        >
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className="font-mono font-bold flex items-center gap-1">{t.displayId} {t.recurrence && <Repeat size={10} className="text-indigo-400" />}</span>
+                                    {dayTasks.map(t => {
+                                        const isOverdue = t.dueDate && t.dueDate < todayStr && t.status !== Status.DONE && t.status !== Status.ARCHIVED;
+                                        return (
+                                            <div 
+                                                key={t.id} 
+                                                draggable="true" 
+                                                onDragStart={(e) => handleDragStart(e, t.id)} 
+                                                onDragOver={(e) => e.preventDefault()} 
+                                                onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, d); }} 
+                                                onClick={() => setActiveTaskId(t.id)} 
+                                                className={`p-3 rounded-xl border text-xs shadow-sm hover:ring-2 hover:ring-indigo-300 cursor-pointer select-none transition-all flex flex-col gap-2 ${
+                                                    t.status === Status.DONE ? 'bg-emerald-50 dark:bg-emerald-900/20 opacity-70 border-slate-200 dark:border-slate-700' : 
+                                                    isOverdue ? 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800' :
+                                                    'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                                                }`}
+                                            >
+                                                <div className="flex justify-between items-center">
+                                                    <span className="font-mono font-bold flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400">
+                                                        {t.displayId} 
+                                                        {t.recurrence && <Repeat size={10} className="text-indigo-400" />}
+                                                    </span>
+                                                    <div className={`w-2 h-2 rounded-full ${t.priority === Priority.HIGH ? 'bg-red-500' : t.priority === Priority.MEDIUM ? 'bg-amber-500' : 'bg-emerald-500'}`} title={`Priority: ${t.priority}`} />
+                                                </div>
+                                                <p className={`line-clamp-2 leading-tight font-bold ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : 'text-slate-700 dark:text-slate-300'}`}>{t.title || t.description}</p>
+                                                
+                                                <div className="flex items-center justify-between mt-1">
+                                                    {isOverdue && (
+                                                        <span className="text-[8px] font-black text-red-600 dark:text-red-400 flex items-center gap-0.5 animate-pulse">
+                                                            <AlertTriangle size={8} /> OVERDUE
+                                                        </span>
+                                                    )}
+                                                    <span 
+                                                        className="ml-auto text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest border border-transparent shadow-xs"
+                                                        style={{ 
+                                                            backgroundColor: getStatusColorHex(t.status),
+                                                            color: getContrastYIQ(getStatusColorHex(t.status))
+                                                        }}
+                                                    >
+                                                        {t.status}
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <p className={`line-clamp-2 leading-tight font-bold mb-1 ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : ''}`}>{t.title || t.description}</p>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         );
@@ -774,8 +837,8 @@ const App: React.FC = () => {
              </div>
 
              <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-3 gap-8">
-                <div className="xl:col-span-2 flex flex-col bg-slate-100/50 dark:bg-slate-800/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-inner"><div className="bg-white dark:bg-slate-800 p-5 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4"><div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl"><button onClick={() => setActiveTaskTab('current')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'current' ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Active</button><button onClick={() => setActiveTaskTab('future')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'future' ? 'bg-white dark:bg-slate-600 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>Upcoming</button><button onClick={() => setActiveTaskTab('completed')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'completed' ? 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>Archive</button></div></div><div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 custom-scrollbar">{filteredTasks.map(t => (<div key={t.id} id={`task-card-${t.id}`}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} /></div>))}</div></div>
-                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden flex flex-col h-full"><div className="flex-1 overflow-y-auto p-6 custom-scrollbar"><DailyJournal tasks={tasks} logs={logs} offDays={offDays} searchQuery={searchQuery} onAddLog={(l) => { const newLog = { ...l, id: uuidv4() }; setLogs(prev => { if (isSyncEnabled) syncData([{ type: 'log', action: 'create', id: newLog.id, data: newLog }]); return [...prev, newLog]; }); }} onUpdateTask={updateTaskFields} onToggleOffDay={(d) => { const next = offDays.includes(d) ? offDays.filter(x => x !== d) : [...offDays, d]; setOffDays(next); if (isSyncEnabled) syncData([{ type: 'offDays', action: 'update', data: next }]); }} onEditLog={handleEditLog} onDeleteLog={handleDeleteLog} /></div></div>
+                <div className="xl:col-span-2 flex flex-col bg-slate-100/50 dark:bg-slate-800/30 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-inner"><div className="bg-white dark:bg-slate-800 p-5 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-4"><div className="flex bg-slate-100 dark:bg-slate-700 p-1 rounded-xl"><button onClick={() => setActiveTaskTab('current')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'current' ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}>Active</button><button onClick={() => setActiveTaskTab('future')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'future' ? 'bg-white dark:bg-slate-600 text-purple-600 dark:text-purple-400' : 'text-slate-500'}`}>Upcoming</button><button onClick={() => setActiveTaskTab('completed')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${activeTaskTab === 'completed' ? 'bg-white dark:bg-slate-600 text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>Archive</button></div></div><div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-6 custom-scrollbar">{filteredTasks.map(t => (<div key={t.id} id={`task-card-${t.id}`}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} todayStr={todayStr} /></div>))}</div></div>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-lg overflow-hidden flex flex-col h-full"><div className="flex-1 overflow-y-auto p-6 custom-scrollbar"><DailyJournal tasks={tasks} logs={logs} offDays={offDays} searchQuery={searchQuery} onAddLog={(l) => { const newLog = { ...l, id: uuidv4() }; setLogs(prev => { if (isSyncEnabled) syncData([{ type: 'log', action: 'create', id: newLog.id, data: newLog }]); return [...prev, newLog]; }); }} onUpdateTask={updateTaskFields} onToggleOffDay={handleToggleOffDay} onToggleOffDayRange={handleToggleOffDayRange} onClearOffDays={handleClearOffDays} onEditLog={handleEditLog} onDeleteLog={handleDeleteLog} /></div></div>
              </div>
           </div>
         );
@@ -819,7 +882,16 @@ const App: React.FC = () => {
         <div className="p-4 flex flex-col items-center gap-1 border-b dark:border-slate-800 h-24 justify-center"><FullLogo isSidebarOpen={isSidebarOpen} />{isSidebarOpen && <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest mt-1">{BUILD_VERSION}</span>}</div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
            {[{ mode: ViewMode.DASHBOARD, icon: LayoutDashboard, label: 'Dashboard' }, { mode: ViewMode.TASKS, icon: ListTodo, label: 'Daily Tasks' }, { mode: ViewMode.OBSERVATIONS, icon: MessageSquare, label: 'Observations' }].map(item => (<button key={item.mode} onClick={() => setView(item.mode)} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${view === item.mode ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-bold' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><item.icon size={20} />{isSidebarOpen && <span>{item.label}</span>}</button>))}
-           <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800"><button onClick={() => setView(ViewMode.SETTINGS)} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${view === ViewMode.SETTINGS ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-bold' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}><SettingsIcon size={20} />{isSidebarOpen && <span>Settings</span>}</button></div>
+           <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800 space-y-2">
+             <button onClick={() => setView(ViewMode.SETTINGS)} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${view === ViewMode.SETTINGS ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-bold' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+               <SettingsIcon size={20} />
+               {isSidebarOpen && <span>Settings</span>}
+             </button>
+             <button onClick={() => setView(ViewMode.HELP)} className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all ${view === ViewMode.HELP ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 font-bold' : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
+               <HelpCircle size={20} />
+               {isSidebarOpen && <span>User Manual</span>}
+             </button>
+           </div>
         </nav>
         <div className="p-4 border-t border-slate-200 dark:border-slate-800"><button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg w-full flex justify-center">{isSidebarOpen ? <LogOut size={20} className="rotate-180" /> : <Menu size={20} />}</button></div>
       </aside>
@@ -926,7 +998,7 @@ const App: React.FC = () => {
         <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-slate-950 custom-scrollbar relative transition-colors duration-300">{renderContent()}</div>
         
         {/* Task Detail Modal */}
-        {activeTask && (<TaskDetailModal task={activeTask} allTasks={tasks} onClose={() => setActiveTaskId(null)} onUpdateStatus={updateTaskStatus} onUpdateTask={updateTaskFields} onAddUpdate={addUpdateToTask} onEditUpdate={handleEditUpdate} onDeleteUpdate={handleDeleteUpdate} onDeleteTask={deleteTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} updateTags={appConfig.updateHighlightOptions || []} statusColors={appConfig.itemColors} />)}
+        {activeTask && (<TaskDetailModal task={activeTask} allTasks={tasks} onClose={() => setActiveTaskId(null)} onUpdateStatus={updateTaskStatus} onUpdateTask={updateTaskFields} onAddUpdate={addUpdateToTask} onEditUpdate={handleEditUpdate} onDeleteUpdate={handleDeleteUpdate} onDeleteTask={deleteTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} updateTags={appConfig.updateHighlightOptions || []} statusColors={appConfig.itemColors} offDays={offDays} />)}
         
         {/* New Task Modal */}
         {showNewTaskModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowNewTaskModal(false))}><form onSubmit={handleCreateTask} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in"><div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Plus size={20}/> Create New Task</h2><button type="button" onClick={() => setShowNewTaskModal(false)}><X size={20}/></button></div><div className="p-6 space-y-4">{modalError && <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-bold"><AlertTriangle size={16} /> {modalError}</div>}<div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Source (CW)</label><input required value={newTaskForm.source} onChange={e => setNewTaskForm({...newTaskForm, source: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Project ID</label><input required autoFocus list="active-projects" value={newTaskForm.projectId} onChange={e => { const pid = e.target.value; setNewTaskForm({...newTaskForm, projectId: pid, displayId: suggestNextId(pid)}); }} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /><datalist id="active-projects">{activeProjects.map(p => <option key={p} value={p} />)}</datalist></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Display ID</label><input required value={newTaskForm.displayId} onChange={e => setNewTaskForm({...newTaskForm, displayId: e.target.value})} className="w-full px-3 py-2 text-sm font-mono bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Task Title</label><input required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} placeholder="Short summary for the card..." className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Description</label><textarea required value={newTaskForm.description} onChange={e => setNewTaskForm({...newTaskForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div></div><div className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3"><button type="button" onClick={() => setShowNewTaskModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg">Cancel</button><button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl">Create Task</button></div></form></div>)}
@@ -985,15 +1057,28 @@ const App: React.FC = () => {
                                                         onDragOver={(e) => e.preventDefault()} 
                                                         onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, todayStr, 'pool'); }}
                                                         onClick={() => setActiveTaskId(t.id)} 
-                                                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all group flex items-start gap-3"
+                                                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-indigo-300 cursor-pointer transition-all group flex flex-col gap-3"
                                                     >
-                                                        <div className="mt-1 text-slate-300 dark:text-slate-600 group-hover:text-indigo-400"><GripVertical size={16} /></div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex justify-between items-center mb-1">
-                                                                <span className="text-[10px] font-mono font-black text-indigo-600 dark:text-indigo-400">{t.displayId}</span>
-                                                                <div className={`w-2 h-2 rounded-full ${t.priority === Priority.HIGH ? 'bg-red-500' : t.priority === Priority.MEDIUM ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                                                            </div>
-                                                            <p className={`text-sm font-bold text-slate-700 dark:text-slate-300 leading-tight ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : ''}`}>{t.title || t.description}</p>
+                                                        <div className="flex items-start gap-3">
+                                                          <div className="mt-1 text-slate-300 dark:text-slate-600 group-hover:text-indigo-400"><GripVertical size={16} /></div>
+                                                          <div className="flex-1 min-w-0">
+                                                              <div className="flex justify-between items-center mb-1">
+                                                                  <span className="text-[10px] font-mono font-black text-indigo-600 dark:text-indigo-400">{t.displayId}</span>
+                                                                  <div className={`w-2 h-2 rounded-full ${t.priority === Priority.HIGH ? 'bg-red-500' : t.priority === Priority.MEDIUM ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                                              </div>
+                                                              <p className={`text-sm font-bold text-slate-700 dark:text-slate-300 leading-tight ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through opacity-50' : ''}`}>{t.title || t.description}</p>
+                                                          </div>
+                                                        </div>
+                                                        <div className="flex justify-end">
+                                                            <span 
+                                                                className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-transparent shadow-xs"
+                                                                style={{ 
+                                                                    backgroundColor: getStatusColorHex(t.status),
+                                                                    color: getContrastYIQ(getStatusColorHex(t.status))
+                                                                }}
+                                                            >
+                                                                {t.status}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 ))
@@ -1019,21 +1104,34 @@ const App: React.FC = () => {
                                                     <div 
                                                         key={t.id} 
                                                         draggable="true" 
-                                                        onDragStart={(e) => handleDragStart(e, t.id)}
+                                                        onDragStart={(e) => handleDragStart(e, t.id)} 
                                                         onDragOver={(e) => e.preventDefault()} 
                                                         onDrop={(e) => { e.stopPropagation(); handleDrop(e, t.id, todayStr, 'processed'); }}
                                                         onClick={() => setActiveTaskId(t.id)} 
-                                                        className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-emerald-400 cursor-pointer transition-all group flex items-start gap-3"
+                                                        className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-white dark:bg-slate-800 shadow-sm hover:shadow-md hover:border-emerald-400 cursor-pointer transition-all group flex flex-col gap-3"
                                                     >
-                                                        <div className="mt-1 text-emerald-100 dark:text-emerald-900 group-hover:text-emerald-400"><GripVertical size={16} /></div>
-                                                        <div className="flex-1 min-w-0 opacity-70 group-hover:opacity-100">
-                                                            <div className="flex justify-between items-center mb-1">
-                                                                <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400">{t.displayId}</span>
-                                                                {t.status === Status.DONE ? <CheckCircle2 size={14} className="text-emerald-500" /> : <div className="w-2.5 h-2.5 rounded-full border border-emerald-200 dark:border-emerald-700" />}
-                                                            </div>
-                                                            <p className={`text-sm font-bold text-slate-700 dark:text-slate-300 leading-tight ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through decoration-emerald-200 opacity-50' : ''}`}>
-                                                                {t.title || t.description}
-                                                            </p>
+                                                        <div className="flex items-start gap-3">
+                                                          <div className="mt-1 text-emerald-100 dark:text-emerald-900 group-hover:text-emerald-400"><GripVertical size={16} /></div>
+                                                          <div className="flex-1 min-w-0 opacity-70 group-hover:opacity-100">
+                                                              <div className="flex justify-between items-center mb-1">
+                                                                  <span className="text-[10px] font-mono font-black text-emerald-600 dark:text-emerald-400">{t.displayId}</span>
+                                                                  {t.status === Status.DONE ? <CheckCircle2 size={14} className="text-emerald-500" /> : <div className="w-2.5 h-2.5 rounded-full border border-emerald-200 dark:border-emerald-700" />}
+                                                              </div>
+                                                              <p className={`text-sm font-bold text-slate-700 dark:text-slate-300 leading-tight ${(t.status === Status.DONE || t.status === Status.ARCHIVED) ? 'line-through decoration-emerald-200 opacity-50' : ''}`}>
+                                                                  {t.title || t.description}
+                                                              </p>
+                                                          </div>
+                                                        </div>
+                                                        <div className="flex justify-end">
+                                                            <span 
+                                                                className="text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-transparent shadow-xs"
+                                                                style={{ 
+                                                                    backgroundColor: getStatusColorHex(t.status),
+                                                                    color: getContrastYIQ(getStatusColorHex(t.status))
+                                                                }}
+                                                            >
+                                                                {t.status}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 ))
@@ -1057,6 +1155,7 @@ const App: React.FC = () => {
                                   availableStatuses={appConfig.taskStatuses} 
                                   availablePriorities={appConfig.taskPriorities} 
                                   statusColors={appConfig.itemColors} 
+                                  todayStr={todayStr}
                               />
                             ))}
                           </div>
@@ -1108,6 +1207,7 @@ const App: React.FC = () => {
                                     availableStatuses={appConfig.taskStatuses} 
                                     availablePriorities={appConfig.taskPriorities} 
                                     statusColors={appConfig.itemColors} 
+                                    todayStr={todayStr}
                                 />
                             ))}
                         </div>
