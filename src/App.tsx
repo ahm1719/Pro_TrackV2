@@ -61,7 +61,7 @@ import {
   getStoredDirectoryHandle, 
 } from './services/backupService';
 
-const BUILD_VERSION = "V4.8.0 - Off-days Update";
+const BUILD_VERSION = "V4.8.3 - Today Progress Update";
 
 const DEFAULT_CONFIG: AppConfig = {
   taskStatuses: Object.values(Status),
@@ -378,13 +378,21 @@ const App: React.FC = () => {
         recurrenceConfig = { type: newTaskForm.recurrenceType as any, interval: newTaskForm.recurrenceInterval };
     }
 
-    const newTask: Task = { ...newTaskForm, recurrence: recurrenceConfig, id: uuidv4(), updates: [], createdAt: new Date().toISOString() };
+    const newTask: Task = { 
+        ...newTaskForm, 
+        recurrence: recurrenceConfig, 
+        id: uuidv4(), 
+        updates: [], 
+        createdAt: new Date().toISOString() 
+    };
     
-    setTasks(prev => {
-        const next = [...prev, newTask];
-        if (isSyncEnabled) syncData([{ type: 'task', action: 'create', id: newTask.id, data: newTask }]);
-        return next;
-    });
+    // Update local state first (Optimistic UI)
+    setTasks(prev => [...prev, newTask]);
+
+    // Explicitly sync to cloud if enabled
+    if (isSyncEnabled) {
+        syncData([{ type: 'task', action: 'create', id: newTask.id, data: newTask }]);
+    }
     
     setHighlightedTaskId(newTask.id); 
     setActiveTaskId(newTask.id); 
@@ -746,8 +754,8 @@ const App: React.FC = () => {
                     })}
                 </div>
              </div>
-             {highPriorityDueToday.length > 0 && (<div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl p-6"><h3 className="text-amber-800 dark:text-amber-200 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"><AlertTriangle size={18} /> High Priority Due Today ({highPriorityDueToday.length})</h3><div className="grid grid-cols-1 lg:grid-cols-3 gap-4">{highPriorityDueToday.map(t => <div key={t.id}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} /></div>)}</div></div>)}
-             {overdueTasks.length > 0 && (<div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-2xl p-6"><h3 className="text-red-800 dark:text-red-200 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"><AlertTriangle size={18} /> Overdue Items ({overdueTasks.length})</h3><div className="grid grid-cols-1 lg:grid-cols-3 gap-4">{overdueTasks.map(t => <div key={t.id}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} /></div>)}</div></div>)}
+             {highPriorityDueToday.length > 0 && (<div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-2xl p-6"><h3 className="text-amber-800 dark:text-amber-200 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"><AlertTriangle size={18} /> High Priority Due Today ({highPriorityDueToday.length})</h3><div className="grid grid-cols-1 lg:grid-cols-3 gap-4">{highPriorityDueToday.map(t => <div key={t.id}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} todayStr={todayStr} /></div>)}</div></div>)}
+             {overdueTasks.length > 0 && (<div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 rounded-2xl p-6"><h3 className="text-red-800 dark:text-red-200 font-bold mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"><AlertTriangle size={18} /> Overdue Items ({overdueTasks.length})</h3><div className="grid grid-cols-1 lg:grid-cols-3 gap-4">{overdueTasks.map(t => <div key={t.id}><TaskCard task={t} onUpdateStatus={updateTaskStatus} onOpenTask={() => setActiveTaskId(t.id)} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} statusColors={appConfig.itemColors} todayStr={todayStr} /></div>)}</div></div>)}
           </div>
         );
 
@@ -765,6 +773,11 @@ const App: React.FC = () => {
                     {weekDays.map(d => {
                         const dayTasks = weekTasks[d] || [], activeCount = dayTasks.filter(t => t.status !== Status.DONE && t.status !== Status.ARCHIVED).length;
                         const isOffDay = offDays.includes(d);
+                        
+                        const isToday = d === todayStr;
+                        const totalToday = dayTasks.length;
+                        const processedToday = dayTasks.filter(t => t.processedDate === d).length;
+
                         return (
                             <div 
                                 key={d} 
@@ -780,6 +793,14 @@ const App: React.FC = () => {
                                     <div className="flex items-center gap-2">
                                         {isOffDay && <span className="bg-rose-100 dark:bg-rose-900/50 text-rose-600 dark:text-rose-400 text-[9px] px-2 py-0.5 rounded-full font-black tracking-widest border border-rose-200 dark:border-rose-800">OFF</span>}
                                         {activeCount > 0 && <span className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold px-2 py-0.5 rounded-full">{activeCount}</span>}
+                                        
+                                        {isToday && (
+                                            <span className="bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[9px] px-2 py-0.5 rounded-full font-black border border-emerald-200 dark:border-emerald-800 flex items-center gap-1" title="Processed / Total Tasks">
+                                                <CheckCircle2 size={10} />
+                                                {processedToday}/{totalToday}
+                                            </span>
+                                        )}
+
                                         {d === todayStr && <span className="bg-indigo-600 text-white text-[9px] px-2 py-0.5 rounded-full font-bold">TODAY</span>}
                                         <button onClick={(e) => { e.stopPropagation(); setExpandedDay(d); }} className="hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 p-1 rounded transition-colors" title="Expand Day"><Maximize2 size={14} /></button>
                                     </div>
@@ -1001,7 +1022,103 @@ const App: React.FC = () => {
         {activeTask && (<TaskDetailModal task={activeTask} allTasks={tasks} onClose={() => setActiveTaskId(null)} onUpdateStatus={updateTaskStatus} onUpdateTask={updateTaskFields} onAddUpdate={addUpdateToTask} onEditUpdate={handleEditUpdate} onDeleteUpdate={handleDeleteUpdate} onDeleteTask={deleteTask} availableStatuses={appConfig.taskStatuses} availablePriorities={appConfig.taskPriorities} updateTags={appConfig.updateHighlightOptions || []} statusColors={appConfig.itemColors} offDays={offDays} />)}
         
         {/* New Task Modal */}
-        {showNewTaskModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowNewTaskModal(false))}><form onSubmit={handleCreateTask} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in"><div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Plus size={20}/> Create New Task</h2><button type="button" onClick={() => setShowNewTaskModal(false)}><X size={20}/></button></div><div className="p-6 space-y-4">{modalError && <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-bold"><AlertTriangle size={16} /> {modalError}</div>}<div className="grid grid-cols-2 gap-4"><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Source (CW)</label><input required value={newTaskForm.source} onChange={e => setNewTaskForm({...newTaskForm, source: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Project ID</label><input required autoFocus list="active-projects" value={newTaskForm.projectId} onChange={e => { const pid = e.target.value; setNewTaskForm({...newTaskForm, projectId: pid, displayId: suggestNextId(pid)}); }} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /><datalist id="active-projects">{activeProjects.map(p => <option key={p} value={p} />)}</datalist></div></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Display ID</label><input required value={newTaskForm.displayId} onChange={e => setNewTaskForm({...newTaskForm, displayId: e.target.value})} className="w-full px-3 py-2 text-sm font-mono bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Task Title</label><input required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} placeholder="Short summary for the card..." className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div><div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Description</label><textarea required value={newTaskForm.description} onChange={e => setNewTaskForm({...newTaskForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" /></div></div><div className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3"><button type="button" onClick={() => setShowNewTaskModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg">Cancel</button><button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl">Create Task</button></div></form></div>)}
+        {showNewTaskModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowNewTaskModal(false))}>
+             <form onSubmit={handleCreateTask} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
+                <div className="p-5 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white">
+                   <h2 className="font-bold flex items-center gap-2"><Plus size={20}/> Create New Task</h2>
+                   <button type="button" onClick={() => setShowNewTaskModal(false)}><X size={20}/></button>
+                </div>
+                <div className="p-6 space-y-4">
+                   {modalError && (
+                     <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-bold">
+                        <AlertTriangle size={16} /> {modalError}
+                     </div>
+                   )}
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                         <label className="text-[10px] font-bold text-slate-400 uppercase">Source (CW)</label>
+                         <input required value={newTaskForm.source} onChange={e => setNewTaskForm({...newTaskForm, source: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                         <label className="text-[10px] font-bold text-slate-400 uppercase">Project ID</label>
+                         <input required autoFocus list="active-projects" value={newTaskForm.projectId} onChange={e => {
+                                const pid = e.target.value;
+                                setNewTaskForm({...newTaskForm, projectId: pid, displayId: suggestNextId(pid)});
+                            }} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                            <datalist id="active-projects">{activeProjects.map(p => <option key={p} value={p} />)}</datalist>
+                      </div>
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Display ID</label>
+                      <input required value={newTaskForm.displayId} onChange={e => setNewTaskForm({...newTaskForm, displayId: e.target.value})} className="w-full px-3 py-2 text-sm font-mono bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Task Title</label>
+                      <input required value={newTaskForm.title} onChange={e => setNewTaskForm({...newTaskForm, title: e.target.value})} placeholder="Short summary for the card..." className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Description</label>
+                      <textarea required value={newTaskForm.description} onChange={e => setNewTaskForm({...newTaskForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                   </div>
+                   
+                   {/* Restored Priority, Due Date and Recurrence Options */}
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                         <label className="text-[10px] font-bold text-slate-400 uppercase">Due Date</label>
+                         <input type="date" value={newTaskForm.dueDate} onChange={e => setNewTaskForm({...newTaskForm, dueDate: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                         <label className="text-[10px] font-bold text-slate-400 uppercase">Priority</label>
+                         <select value={newTaskForm.priority} onChange={e => setNewTaskForm({...newTaskForm, priority: e.target.value})} className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none">
+                            {appConfig.taskPriorities.map(p => <option key={p} value={p}>{p}</option>)}
+                         </select>
+                      </div>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                                <Repeat size={12} /> Recurrence
+                            </label>
+                            <select 
+                                value={newTaskForm.recurrenceType}
+                                onChange={(e) => setNewTaskForm({...newTaskForm, recurrenceType: e.target.value})}
+                                className="w-full px-3 py-2 text-sm bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none"
+                            >
+                                <option value="none">None</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                                <option value="yearly">Yearly</option>
+                            </select>
+                        </div>
+                        {newTaskForm.recurrenceType !== 'none' && (
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase">Interval</label>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Every</span>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        value={newTaskForm.recurrenceInterval}
+                                        onChange={(e) => setNewTaskForm({...newTaskForm, recurrenceInterval: parseInt(e.target.value) || 1})}
+                                        className="w-16 px-2 py-2 text-sm text-center bg-slate-50 dark:bg-slate-700 border dark:border-slate-600 rounded-xl outline-none"
+                                    />
+                                    <span className="text-xs text-slate-500">{newTaskForm.recurrenceType.replace('ly', '(s)')}</span>
+                                </div>
+                            </div>
+                        )}
+                   </div>
+
+                </div>
+                <div className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3">
+                   <button type="button" onClick={() => setShowNewTaskModal(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded-lg">Cancel</button>
+                   <button type="submit" className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl">Create Task</button>
+                </div>
+             </form>
+          </div>
+        )}
         
         {/* Weekly Report Modal */}
         {showReportModal && (<div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onMouseDown={handleBackdropMouseDown} onClick={createBackdropClickHandler(() => setShowReportModal(false))}><div onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"><div className="p-4 border-b dark:border-slate-700 flex justify-between items-center bg-indigo-600 text-white"><h2 className="font-bold flex items-center gap-2"><Sparkles size={18}/> Weekly AI Report</h2><button onClick={() => setShowReportModal(false)}><X size={20}/></button></div><div className="flex-1 overflow-y-auto p-6 dark:text-slate-200">{isGeneratingReport ? <div className="flex flex-col items-center justify-center py-12 gap-4"><div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div><p>Analyzing...</p></div> : <div className="prose prose-sm max-w-none dark:prose-invert">{generatedReport.split('\n').map((line, i) => <p key={i}>{line}</p>)}</div>}</div><div className="p-4 border-t dark:border-slate-700 flex justify-end gap-2 bg-slate-50 dark:bg-slate-800"><button onClick={() => { navigator.clipboard.writeText(generatedReport); alert('Copied!'); }} className="px-4 py-2 text-slate-600 font-bold rounded-lg hover:bg-slate-200">Copy</button><button onClick={() => setShowReportModal(false)} className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">Close</button></div></div></div>)}
